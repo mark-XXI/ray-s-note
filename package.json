@@ -1,0 +1,32 @@
+{
+  "name": "rays-note",
+  "version": "1.0.0",
+  "description": "Ray's Note - Desktop Sticky Notes",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win --x64"
+  },
+  "build": {
+    "appId": "com.rays.note",
+    "productName": "Ray's Note",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "note-icon.ico"
+    }
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.13.3"
+  }
+}

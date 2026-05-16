@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Ray's Note — Dashboard</title>
+<style>
+/* ── Base ── */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:       #1e1e2e;
+  --surface:  #2a2a3e;
+  --surface2: #33334d;
+  --accent:   #7c6fff;
+  --accent2:  #5ac8fa;
+  --text:     #e0e0f0;
+  --text2:    #9090b0;
+  --danger:   #ff6b6b;
+  --success:  #28c840;
+  --warn:     #febc2e;
+  --radius:   10px;
+}
+
+body {
+  font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Header ── */
+#header {
+  padding: 16px 20px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+#header h1 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+}
+#header h1 span { color: var(--accent); }
+
+#btn-new-dash {
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius);
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+#btn-new-dash:hover { opacity: 0.85; }
+
+/* ── Stats bar ── */
+#stats {
+  display: flex;
+  gap: 0;
+  background: var(--surface2);
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  flex-shrink: 0;
+}
+
+.stat-box {
+  flex: 1;
+  padding: 10px;
+  text-align: center;
+  border-right: 1px solid rgba(255,255,255,0.05);
+}
+.stat-box:last-child { border-right: none; }
+.stat-num { font-size: 22px; font-weight: 700; color: var(--accent); }
+.stat-lbl { font-size: 10px; color: var(--text2); margin-top: 2px; }
+
+/* ── Filter tabs ── */
+#filter-bar {
+  display: flex;
+  gap: 6px;
+  padding: 10px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  flex-shrink: 0;
+}
+
+.ftab {
+  background: var(--surface2);
+  color: var(--text2);
+  border: none;
+  border-radius: 20px;
+  padding: 4px 14px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.ftab:hover { color: var(--text); }
+.ftab.on    { background: var(--accent); color: white; }
+
+/* ── Search ── */
+#search-row {
+  padding: 8px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  flex-shrink: 0;
+}
+#search-input {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  padding: 6px 12px;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  font-family: inherit;
+}
+#search-input::placeholder { color: var(--text2); }
+#search-input:focus { border-color: var(--accent); }
+
+/* ── Note list ── */
+#notes-wrap {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 20px 20px;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text2);
+  font-size: 14px;
+}
+.empty-state div { font-size: 36px; margin-bottom: 10px; }
+
+.note-card {
+  background: var(--surface);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  transition: border-color 0.15s;
+}
+.note-card:hover { border-color: rgba(255,255,255,0.18); }
+.note-card.pinned { border-color: var(--warn); }
+
+.note-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 5px;
+  border: 1.5px solid rgba(0,0,0,0.2);
+}
+
+.note-body { flex: 1; min-width: 0; }
+.note-preview {
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+.note-preview.empty-preview { color: var(--text2); font-style: italic; }
+
+.note-meta {
+  font-size: 10px;
+  color: var(--text2);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.badge {
+  font-size: 9px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+.badge-open   { background: rgba(88,200,100,0.2); color: var(--success); }
+.badge-hidden { background: rgba(255,255,255,0.08); color: var(--text2); }
+.badge-pinned { background: rgba(254,188,46,0.2); color: var(--warn); }
+
+.note-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.na {
+  background: var(--surface2);
+  color: var(--text2);
+  border: none;
+  border-radius: 6px;
+  padding: 4px 9px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.12s;
+  font-family: inherit;
+}
+.na:hover { color: var(--text); background: rgba(255,255,255,0.12); }
+.na.show  { color: var(--accent2); }
+.na.hide  { color: var(--text2); }
+.na.pin   { color: var(--warn); }
+.na.del   { color: var(--danger); }
+.na.del:hover { background: rgba(255,107,107,0.15); }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+
+/* ── Footer ── */
+#footer {
+  padding: 8px 20px;
+  background: var(--surface);
+  border-top: 1px solid rgba(255,255,255,0.05);
+  font-size: 10px;
+  color: var(--text2);
+  text-align: center;
+  flex-shrink: 0;
+}
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>Ray's <span>Note</span> - Dashboard</h1>
+  <button id="btn-new-dash" onclick="newNote()">+ New Note</button>
+</div>
+
+<div id="stats">
+  <div class="stat-box">
+    <div class="stat-num" id="st-total">0</div>
+    <div class="stat-lbl">Total Notes</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-num" id="st-open" style="color:var(--success)">0</div>
+    <div class="stat-lbl">On Desktop</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-num" id="st-hidden" style="color:var(--text2)">0</div>
+    <div class="stat-lbl">Hidden</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-num" id="st-pinned" style="color:var(--warn)">0</div>
+    <div class="stat-lbl">Pinned</div>
+  </div>
+</div>
+
+<div id="filter-bar">
+  <button class="ftab on" data-f="all"    onclick="setFilter(this)">All</button>
+  <button class="ftab"    data-f="open"   onclick="setFilter(this)">On Desktop</button>
+  <button class="ftab"    data-f="hidden" onclick="setFilter(this)">Hidden</button>
+  <button class="ftab"    data-f="pinned" onclick="setFilter(this)">Pinned</button>
+</div>
+
+<div id="search-row">
+  <input id="search-input" type="text" placeholder="Search notes..." oninput="renderList()" spellcheck="false">
+</div>
+
+<div id="notes-wrap">
+  <div class="empty-state"><div>📋</div>No notes yet — create one!</div>
+</div>
+
+<div id="footer">Notes are saved automatically · Ray's Note v1.0</div>
+
+<script>
+const { ipcRenderer } = require('electron');
+
+let allNotes  = [];
+let curFilter = 'all';
+
+// ── Receive notes from main ──────────────────────────────────────────────────
+ipcRenderer.on('notes-list', (_, notes) => {
+  allNotes = notes;
+  updateStats();
+  renderList();
+});
+
+// request on load
+ipcRenderer.send('get-notes');
+
+// ── Stats ────────────────────────────────────────────────────────────────────
+function updateStats() {
+  document.getElementById('st-total').textContent  = allNotes.length;
+  document.getElementById('st-open').textContent   = allNotes.filter(n => n.isOpen).length;
+  document.getElementById('st-hidden').textContent = allNotes.filter(n => n.hidden).length;
+  document.getElementById('st-pinned').textContent = allNotes.filter(n => n.pinned).length;
+}
+
+// ── Filter ───────────────────────────────────────────────────────────────────
+function setFilter(btn) {
+  document.querySelectorAll('.ftab').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  curFilter = btn.dataset.f;
+  renderList();
+}
+
+// ── Render ───────────────────────────────────────────────────────────────────
+function renderList() {
+  const q     = document.getElementById('search-input').value.toLowerCase();
+  const wrap  = document.getElementById('notes-wrap');
+
+  let notes = allNotes;
+
+  // filter
+  if (curFilter === 'open')   notes = notes.filter(n => n.isOpen);
+  if (curFilter === 'hidden') notes = notes.filter(n => n.hidden || !n.isOpen);
+  if (curFilter === 'pinned') notes = notes.filter(n => n.pinned);
+
+  // search
+  if (q) {
+    notes = notes.filter(n => {
+      const text = (n.content || '').replace(/<[^>]+>/g, ' ').toLowerCase();
+      return text.includes(q);
+    });
+  }
+
+  // pinned first
+  notes = [...notes].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
+
+  if (!notes.length) {
+    wrap.innerHTML = `<div class="empty-state"><div>🔍</div>No notes found</div>`;
+    return;
+  }
+
+  wrap.innerHTML = '';
+  notes.forEach(n => {
+    const rawText = (n.content || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g,' ').trim();
+    const preview = rawText || '';
+    const date    = n.updatedAt
+      ? new Date(n.updatedAt).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })
+      : '';
+
+    const card = document.createElement('div');
+    card.className = 'note-card' + (n.pinned ? ' pinned' : '');
+    card.innerHTML = `
+      <div class="note-swatch" style="background:${n.color || '#FFF9C4'}"></div>
+      <div class="note-body">
+        <div class="note-preview ${preview ? '' : 'empty-preview'}">${preview || '(empty note)'}</div>
+        <div class="note-meta">
+          <span>${date}</span>
+          ${n.isOpen   ? '<span class="badge badge-open">● On Desktop</span>'  : '<span class="badge badge-hidden">○ Hidden</span>'}
+          ${n.pinned   ? '<span class="badge badge-pinned">📌 Pinned</span>'   : ''}
+        </div>
+      </div>
+      <div class="note-actions">
+        ${n.isOpen
+          ? `<button class="na hide" onclick="hideNote(${n.id})">Hide</button>`
+          : `<button class="na show" onclick="showNote(${n.id})">Show</button>`
+        }
+        <button class="na pin"  onclick="pinNote(${n.id})">${n.pinned ? 'Unpin' : 'Pin'}</button>
+        <button class="na del"  onclick="deleteNote(${n.id})">Delete</button>
+      </div>`;
+    wrap.appendChild(card);
+  });
+}
+
+// ── Actions ──────────────────────────────────────────────────────────────────
+function showNote(id)   { ipcRenderer.send('show-note', id); }
+function hideNote(id)   { ipcRenderer.send('hide-note', id); }
+function pinNote(id)    { ipcRenderer.send('pin-note',  id); }
+function newNote()      { ipcRenderer.send('new-note-from-dash'); }
+
+function deleteNote(id) {
+  const n = allNotes.find(x => x.id === id);
+  const preview = (n?.content || '').replace(/<[^>]+>/g,' ').substring(0, 50) || 'this note';
+  if (!confirm(`Delete note?\n"${preview}"\n\nThis cannot be undone.`)) return;
+  ipcRenderer.send('delete-note', id);
+}
+</script>
+</body>
+</html>

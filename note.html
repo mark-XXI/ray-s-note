@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Ray's Note</title>
+<style>
+/* ── Reset ── */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+  background: var(--nc, #FFF9C4);
+  color: #2c2c2c;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* ── Title Bar (drag area) ── */
+#titlebar {
+  -webkit-app-region: drag;
+  background: rgba(0,0,0,0.10);
+  padding: 5px 8px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+#win-btns {
+  -webkit-app-region: no-drag;
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.wb {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  color: transparent;
+  transition: color 0.15s, transform 0.12s;
+  flex-shrink: 0;
+  padding: 0;
+}
+.wb:hover { color: rgba(0,0,0,0.7); transform: scale(1.15); }
+#wb-close { background: #ff5f57; }
+#wb-hide  { background: #febc2e; }
+#wb-new   { background: #28c840; }
+#wb-dash  { background: #5ac8fa; font-size: 9px; border-radius: 4px; width: 20px; }
+
+/* ── Color Strip ── */
+#color-row {
+  -webkit-app-region: no-drag;
+  padding: 4px 8px;
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  background: rgba(0,0,0,0.05);
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+  flex-shrink: 0;
+}
+
+.cd {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0,0,0,0.18);
+  cursor: pointer;
+  transition: transform 0.12s;
+  flex-shrink: 0;
+}
+.cd:hover { transform: scale(1.25); }
+.cd.on    { border-color: rgba(0,0,0,0.55); transform: scale(1.2); }
+
+/* ── Toolbar ── */
+#toolbar {
+  -webkit-app-region: no-drag;
+  padding: 4px 8px;
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  background: rgba(0,0,0,0.04);
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.tb {
+  background: rgba(0,0,0,0.08);
+  border: none;
+  border-radius: 4px;
+  padding: 2px 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: #333;
+  transition: background 0.12s;
+  min-width: 24px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+  user-select: none;
+}
+.tb:hover { background: rgba(0,0,0,0.18); }
+.tb.on    { background: rgba(0,0,0,0.25); }
+
+.sep { width: 1px; height: 16px; background: rgba(0,0,0,0.15); margin: 0 2px; flex-shrink: 0; }
+
+#sz-lbl { font-size: 11px; color: rgba(0,0,0,0.5); min-width: 20px; text-align: center; }
+
+/* ── Editor ── */
+#editor {
+  flex: 1;
+  padding: 10px 12px;
+  outline: none;
+  font-size: 15px;
+  line-height: 1.75;
+  color: #2c2c2c;
+  overflow-y: auto;
+  user-select: text;
+  -webkit-app-region: no-drag;
+  word-break: break-word;
+  cursor: text;
+  background: transparent;
+  width: 100%;
+  font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+}
+#editor:empty::before {
+  content: attr(data-ph);
+  color: rgba(0,0,0,0.28);
+  pointer-events: none;
+}
+
+/* ── Tasks ── */
+.task-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 2px 0;
+  direction: ltr;
+}
+.task-row input[type=checkbox] {
+  width: 14px; height: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-top: 3px;
+  -webkit-app-region: no-drag;
+}
+.task-text { flex: 1; outline: none; }
+.task-text.done {
+  text-decoration: line-through;
+  color: rgba(0,0,0,0.38);
+}
+
+/* ── Status bar ── */
+#statusbar {
+  -webkit-app-region: no-drag;
+  padding: 3px 10px;
+  font-size: 10px;
+  color: rgba(0,0,0,0.35);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid rgba(0,0,0,0.07);
+  flex-shrink: 0;
+  gap: 6px;
+}
+#save-dot { font-size: 14px; line-height: 1; }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.18); border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<!-- Title Bar -->
+<div id="titlebar">
+  <div id="win-btns">
+    <button class="wb" id="wb-close" onclick="closeNote()" title="Close">×</button>
+    <button class="wb" id="wb-hide"  onclick="hideNote()"  title="Hide">−</button>
+    <button class="wb" id="wb-new"   onclick="newNote()"   title="New Note">+</button>
+    <button class="wb" id="wb-dash"  onclick="openDash()"  title="Dashboard">≡</button>
+    <button class="wb" id="wb-toolbar" onclick="toggleToolbar()" title="Toggle Toolbar" style="background:#a0a0a0; border-radius:4px; width:20px; font-size:9px;">▤</button>
+  </div>
+  <span style="font-size:11px; color:rgba(0,0,0,0.4); -webkit-app-region:drag; flex:1; text-align:center;">Ray's Note</span>
+</div>
+
+<!-- Color Strip (separated from titlebar) -->
+<div id="color-row">
+  <span style="font-size:10px; color:rgba(0,0,0,0.4); margin-left:2px;">Color:</span>
+  <div class="cd" style="background:#FFF9C4" data-c="#FFF9C4" onclick="setColor(this)" title="Yellow"></div>
+  <div class="cd" style="background:#C8F7C5" data-c="#C8F7C5" onclick="setColor(this)" title="Green"></div>
+  <div class="cd" style="background:#C5E8FF" data-c="#C5E8FF" onclick="setColor(this)" title="Blue"></div>
+  <div class="cd" style="background:#FFC5C5" data-c="#FFC5C5" onclick="setColor(this)" title="Pink"></div>
+  <div class="cd" style="background:#E8C5FF" data-c="#E8C5FF" onclick="setColor(this)" title="Purple"></div>
+  <div class="cd" style="background:#FFE0C5" data-c="#FFE0C5" onclick="setColor(this)" title="Orange"></div>
+  <div class="cd" style="background:#F0F0F0" data-c="#F0F0F0" onclick="setColor(this)" title="White"></div>
+</div>
+
+<!-- Toolbar -->
+<div id="toolbar">
+  <!-- Text format -->
+  <button class="tb" onclick="fmt('bold')"      title="Bold"><b>B</b></button>
+  <button class="tb" onclick="fmt('italic')"    title="Italic"><i>I</i></button>
+  <button class="tb" onclick="fmt('underline')" title="Underline"><u>U</u></button>
+  <div class="sep"></div>
+  <!-- Alignment -->
+  <button class="tb" onclick="setAlign('left')"   title="Align Left">◀≡</button>
+  <button class="tb" onclick="setAlign('center')" title="Center">≡</button>
+  <button class="tb" onclick="setAlign('right')"  title="Align Right">≡▶</button>
+  <div class="sep"></div>
+  <!-- Direction -->
+  <button class="tb" onclick="setDir('ltr')" title="Left to Right (English)">LTR</button>
+  <button class="tb" onclick="setDir('rtl')" title="Right to Left (Arabic)">RTL</button>
+  <div class="sep"></div>
+  <!-- Insert -->
+  <button class="tb" onclick="insertBullet()" title="Bullet Point">•</button>
+  <button class="tb" onclick="insertTask()"   title="Task / Checkbox">☐</button>
+  <div class="sep"></div>
+  <!-- Font size -->
+  <button class="tb" onclick="changeSize(-1)" title="Decrease Font">A-</button>
+  <span id="sz-lbl">15</span>
+  <button class="tb" onclick="changeSize(1)"  title="Increase Font">A+</button>
+</div>
+
+<!-- Editor -->
+<div id="editor"
+     contenteditable="true"
+     spellcheck="false"
+     data-ph="Start typing...">
+</div>
+
+<!-- Status Bar -->
+<div id="statusbar">
+  <span id="wc">0 words</span>
+  <span id="save-dot" title="Saved">●</span>
+  <span id="save-lbl">Saved</span>
+</div>
+
+<script>
+const { ipcRenderer } = require('electron');
+
+let noteId   = null;
+let noteColor = '#FFF9C4';
+let fontSize  = 15;
+let dir       = 'rtl';
+let saveTimer = null;
+
+const editor  = document.getElementById('editor');
+const szLbl   = document.getElementById('sz-lbl');
+const wcEl    = document.getElementById('wc');
+const saveDot = document.getElementById('save-dot');
+const saveLbl = document.getElementById('save-lbl');
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+ipcRenderer.on('init', (_, note) => {
+  noteId    = note.id;
+  noteColor = note.color   || '#FFF9C4';
+  fontSize  = note.fontSize|| 15;
+  dir       = note.dir     || 'rtl';
+
+  editor.innerHTML       = note.content || '';
+  editor.style.fontSize  = fontSize + 'px';
+  editor.style.direction = dir;
+  editor.style.textAlign = dir === 'rtl' ? 'right' : 'left';
+  szLbl.textContent      = fontSize;
+  document.body.style.background = noteColor;
+
+  // mark active color dot
+  document.querySelectorAll('.cd').forEach(d => {
+    d.classList.toggle('on', d.dataset.c === noteColor);
+  });
+
+  // re-attach task checkboxes (in case content was saved with them)
+  rebindTasks();
+  updateWC();
+  setSaved(true);
+});
+
+// ── Save logic ────────────────────────────────────────────────────────────────
+function schedSave() {
+  setSaved(false);
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(doSave, 700);
+}
+
+function doSave() {
+  ipcRenderer.send('note-update', {
+    id: noteId,
+    content:  editor.innerHTML,
+    color:    noteColor,
+    fontSize: fontSize,
+    dir:      dir,
+  });
+  setSaved(true);
+}
+
+function setSaved(yes) {
+  saveDot.style.color = yes ? 'rgba(0,0,0,0.2)' : '#e53e3e';
+  saveLbl.textContent = yes ? 'Saved' : 'Saving...';
+}
+
+editor.addEventListener('input', () => { updateWC(); schedSave(); });
+
+function updateWC() {
+  const t = editor.innerText.trim();
+  wcEl.textContent = t ? t.split(/\s+/).length + ' words' : '0 words';
+}
+
+// ── Formatting ────────────────────────────────────────────────────────────────
+function fmt(cmd) { editor.focus(); document.execCommand(cmd, false, null); schedSave(); }
+
+function setAlign(a) {
+  editor.focus();
+  document.execCommand('justify' + a.charAt(0).toUpperCase() + a.slice(1));
+  schedSave();
+}
+
+function setDir(d) {
+  dir = d;
+  editor.style.direction = d;
+  editor.style.textAlign = d === 'rtl' ? 'right' : 'left';
+  schedSave();
+}
+
+function changeSize(delta) {
+  fontSize = Math.min(30, Math.max(10, fontSize + delta));
+  editor.style.fontSize = fontSize + 'px';
+  szLbl.textContent = fontSize;
+  schedSave();
+}
+
+// ── Color ─────────────────────────────────────────────────────────────────────
+function setColor(dot) {
+  document.querySelectorAll('.cd').forEach(d => d.classList.remove('on'));
+  dot.classList.add('on');
+  noteColor = dot.dataset.c;
+  document.body.style.background = noteColor;
+  schedSave();
+}
+
+// ── Bullet ────────────────────────────────────────────────────────────────────
+function insertBullet() {
+  editor.focus();
+  document.execCommand('insertHTML', false, '<div>• </div>');
+  schedSave();
+}
+
+// ── Tasks ─────────────────────────────────────────────────────────────────────
+function insertTask() {
+  editor.focus();
+  const id = 'tk' + Date.now();
+  const html = `<div class="task-row" id="${id}">` +
+    `<input type="checkbox" onchange="toggleTask(this)">` +
+    `<span class="task-text" contenteditable="true">New task</span>` +
+    `</div>`;
+  document.execCommand('insertHTML', false, html);
+
+  // place cursor on task text
+  const el = document.getElementById(id);
+  if (el) {
+    const span = el.querySelector('.task-text');
+    if (span) {
+      span.focus();
+      const r = document.createRange();
+      r.selectNodeContents(span);
+      const s = window.getSelection();
+      s.removeAllRanges();
+      s.addRange(r);
+    }
+  }
+  schedSave();
+}
+
+function toggleTask(cb) {
+  const span = cb.nextElementSibling;
+  if (!span) return;
+  span.classList.toggle('done', cb.checked);
+  schedSave();
+}
+
+function rebindTasks() {
+  editor.querySelectorAll('.task-row input[type=checkbox]').forEach(cb => {
+    cb.onchange = () => toggleTask(cb);
+    const span = cb.nextElementSibling;
+    if (span && cb.checked) span.classList.add('done');
+  });
+}
+
+// ── Window controls ───────────────────────────────────────────────────────────
+function closeNote() { doSave(); ipcRenderer.send('note-close'); }
+function hideNote()  { ipcRenderer.send('note-minimize'); }
+function newNote()   { ipcRenderer.send('note-new'); }
+function openDash()  { ipcRenderer.send('open-dashboard'); }
+let toolbarVisible = true;
+function toggleToolbar() {
+  toolbarVisible = !toolbarVisible;
+  document.getElementById('color-row').style.display = toolbarVisible ? '' : 'none';
+  document.getElementById('toolbar').style.display   = toolbarVisible ? '' : 'none';
+}
+</script>
+</body>
+</html>
