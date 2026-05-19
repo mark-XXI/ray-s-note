@@ -284,6 +284,10 @@ ipcRenderer.on('init', (_, note) => {
   rebindTasks();
   updateWC();
   setSaved(true);
+
+  document.getElementById('color-row').style.display = 'none';
+  document.getElementById('toolbar').style.display   = 'none';
+  toolbarVisible = false;
 });
 
 // ── Save logic ────────────────────────────────────────────────────────────────
