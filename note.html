@@ -337,9 +337,45 @@ function setDir(d) {
 }
 
 function changeSize(delta) {
-  fontSize = Math.min(30, Math.max(10, fontSize + delta));
-  editor.style.fontSize = fontSize + 'px';
-  szLbl.textContent = fontSize;
+  const sel = window.getSelection();
+  const hasSelection = sel && !sel.isCollapsed && editor.contains(sel.anchorNode);
+
+  if (hasSelection) {
+    const range = sel.getRangeAt(0);
+
+    // Detect current font size of the selected text
+    let curSize = fontSize;
+    const node = sel.anchorNode;
+    const el = (node.nodeType === 3) ? node.parentElement : node;
+    if (el) {
+      const computed = parseFloat(window.getComputedStyle(el).fontSize);
+      if (!isNaN(computed)) curSize = Math.round(computed);
+    }
+
+    const newSize = Math.min(30, Math.max(10, curSize + delta));
+
+    // Wrap selection in a span with the new size
+    const fragment = range.extractContents();
+    const span = document.createElement('span');
+    span.style.fontSize = newSize + 'px';
+    span.appendChild(fragment);
+    range.insertNode(span);
+
+    // Restore selection
+    const newRange = document.createRange();
+    newRange.selectNodeContents(span);
+    sel.removeAllRanges();
+    sel.addRange(newRange);
+
+    // Update label to reflect selection's new size
+    szLbl.textContent = newSize;
+
+  } else {
+    // No selection → apply to whole note
+    fontSize = Math.min(30, Math.max(10, fontSize + delta));
+    editor.style.fontSize = fontSize + 'px';
+    szLbl.textContent = fontSize;
+  }
   schedSave();
 }
 

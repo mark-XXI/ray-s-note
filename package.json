@@ -7,26 +7,22 @@
     "start": "electron .",
     "build": "electron-builder --win --x64"
   },
+  "dependencies": {
+    "koffi": "^2.8.0"
+  },
   "build": {
     "appId": "com.rays.note",
-    "productName": "Ray's Note",
-    "directories": {
-      "output": "dist"
-    },
+    "productName": "Ray Notes",
+    "directories": { "output": "dist" },
     "win": {
-      "target": [
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
+      "target": [{ "target": "portable", "arch": ["x64"] }],
       "icon": "note-icon.ico"
-    }
+    },
+    "extraResources": [],
+    "npmRebuild": true
   },
   "devDependencies": {
     "electron": "^28.0.0",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^24.0.0"
   }
 }
