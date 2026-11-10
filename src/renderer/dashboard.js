@@ -85,7 +85,7 @@ function renderList() {
           ? `<button class="na hide" data-action="hide">Hide</button>`
           : `<button class="na show" data-action="show">Show</button>`
         }
-        <button class="na pin" data-action="pin">${n.pinned ? 'Unpin' : 'Pin'}</button>
+        <button class="na pin" data-action="pin">${n.pinned ? 'Unpin' : 'Pin on top'}</button>
         <button class="na del" data-action="delete">Delete</button>
       </div>`;
     card.querySelector('.note-swatch').style.background = n.color || '#FFF9C4';

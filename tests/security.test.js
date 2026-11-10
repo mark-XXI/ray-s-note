@@ -53,7 +53,7 @@ test('note updates require matching IDs and valid shapes', () => {
 test('note preload exposes only the named, limited API', async () => {
   const { exposed, listeners, calls } = bridge('src/preload/note.js', 'raysNote');
   assert.deepEqual(Object.keys(exposed).sort(),
-    ['onInit', 'onFlushRequest', 'save', 'flushResult', 'close', 'hide', 'create', 'dashboard'].sort());
+    ['onInit', 'onPinChanged', 'togglePin', 'onFlushRequest', 'save', 'flushResult', 'close', 'hide', 'create', 'dashboard'].sort());
   assert.equal(exposed.send, undefined);
   exposed.close(); exposed.hide(); exposed.create(); exposed.dashboard();
   assert.deepEqual(calls.map(call => call.channel),
@@ -66,6 +66,13 @@ test('note preload exposes only the named, limited API', async () => {
   listeners.get('init')({ sender: { secret: true } }, { id: 7 });
   assert.equal(received.id, 7);
   assert.equal(received.sender, undefined);
+  await exposed.togglePin();
+  assert.equal(calls.at(-1).channel, 'toggle-note-pin');
+  assert.deepEqual(calls.at(-1).args, [], 'note controls may not choose a target ID');
+  let pinState;
+  exposed.onPinChanged(pinned => { pinState = pinned; });
+  listeners.get('note-pin-changed')({ sender: { private: true } }, true);
+  assert.equal(pinState, true);
 });
 
 test('preload flush events do not expose raw Electron event objects', () => {

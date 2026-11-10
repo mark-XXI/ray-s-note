@@ -6,6 +6,11 @@ contextBridge.exposeInMainWorld('raysNote', {
     if (typeof callback !== 'function') return;
     ipcRenderer.on('init', (_event, note) => callback(note));
   },
+  onPinChanged(callback) {
+    if (typeof callback !== 'function') return;
+    ipcRenderer.on('note-pin-changed', (_event, pinned) => callback(pinned === true));
+  },
+  togglePin() { return ipcRenderer.invoke('toggle-note-pin'); },
   onFlushRequest(callback) {
     if (typeof callback !== 'function') return;
     ipcRenderer.on('app-flush-request', (_event, requestId) => callback(requestId));

@@ -13,6 +13,34 @@ const szLbl   = document.getElementById('sz-lbl');
 const wcEl    = document.getElementById('wc');
 const saveDot = document.getElementById('save-dot');
 const saveLbl = document.getElementById('save-lbl');
+const pinBtn = document.getElementById('wb-pin');
+let pinBusy = false;
+
+function renderPinState(pinned) {
+  const active = pinned === true;
+  pinBtn.classList.toggle('pinned', active);
+  pinBtn.setAttribute('aria-pressed', String(active));
+  pinBtn.title = active ? 'Unpin note (normal window)' : 'Pin note on top';
+  pinBtn.setAttribute('aria-label', pinBtn.title);
+}
+
+noteAPI.onPinChanged((pinned) => renderPinState(pinned));
+
+async function toggleNotePin() {
+  if (pinBusy || noteId === null) return;
+  pinBusy = true;
+  pinBtn.disabled = true;
+  try {
+    const result = await noteAPI.togglePin();
+    if (result && result.ok === true) renderPinState(result.pinned);
+    else console.error('Pin change failed:', result?.error || 'Unknown error');
+  } catch (error) {
+    console.error('Pin change failed:', error);
+  } finally {
+    pinBusy = false;
+    pinBtn.disabled = false;
+  }
+}
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 noteAPI.onInit((note) => {
@@ -20,6 +48,7 @@ noteAPI.onInit((note) => {
   noteColor = note.color   || '#FFF9C4';
   fontSize  = note.fontSize|| 15;
   dir       = note.dir     || 'rtl';
+  renderPinState(note.pinned === true);
 
   editor.innerHTML       = window.RaysNoteHtml.sanitize(note.content || '');
   editor.style.fontSize  = fontSize + 'px';
@@ -262,6 +291,7 @@ document.getElementById('wb-close').addEventListener('click', () => { void close
 document.getElementById('wb-hide').addEventListener('click', hideNote);
 document.getElementById('wb-new').addEventListener('click', newNote);
 document.getElementById('wb-dash').addEventListener('click', openDash);
+document.getElementById('wb-pin').addEventListener('click', () => { void toggleNotePin(); });
 document.getElementById('wb-toolbar').addEventListener('click', toggleToolbar);
 document.querySelectorAll('.cd').forEach(dot => dot.addEventListener('click', () => setColor(dot)));
 document.querySelectorAll('[data-format]').forEach(btn => btn.addEventListener('click', () => fmt(btn.dataset.format)));

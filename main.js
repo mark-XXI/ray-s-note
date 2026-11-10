@@ -9,6 +9,7 @@ const {
 } = require('./src/notes/note-model');
 const { startDesktopWatcher } = require('./desktop-pin');
 const { NoteLifecycle } = require('./src/windows/note-lifecycle');
+const { NotePinning } = require('./src/windows/note-pinning');
 const { isTrustedFrame, isAuthorizedNoteUpdate } = require('./src/security/ipc-policy');
 
 // Explicitly opt into isolated local data for development testing.
@@ -149,6 +150,23 @@ const noteLifecycle = new NoteLifecycle({
   refresh: refreshDash,
 });
 
+// Dashboard and individual note pin controls share this single operation.
+const notePinning = new NotePinning({
+  getNote: getNoteById,
+  getWindow: (id) => noteWins.get(id),
+  persistPinned: (id, pinned) => changeNote(id, { pinned }),
+  notify: (id, pinned) => {
+    const win = noteWins.get(id);
+    if (win && !win.isDestroyed() && win._rayReady) {
+      win.webContents.send('note-pin-changed', pinned);
+    }
+  },
+  reportError: (error) => {
+    console.error("[Ray's Note] Pinning failed:", error);
+    dialog.showErrorBox("Ray's Note — Pin failed", error.message || String(error));
+  },
+});
+
 let shutdownApproved = false;
 let shutdownInProgress = false;
 async function quitSafely() {
@@ -196,7 +214,7 @@ function openNoteWindow(note) {
     minWidth: 200, minHeight: 200,
     frame: false, transparent: false,
     resizable: true, skipTaskbar: true,
-    alwaysOnTop: false,
+    alwaysOnTop: note.pinned === true,
     webPreferences: {
       nodeIntegration: false, contextIsolation: true, sandbox: true,
       preload: path.join(__dirname, 'src/preload/note.js'),
@@ -411,8 +429,14 @@ ipcMain.on('delete-note', (event, id) => {
 ipcMain.on('new-note-from-dash', (event) => {
   if (trustedDashboard(event)) createNewNote();
 });
+// Renderer pin actions cannot choose arbitrary note IDs.
+ipcMain.handle('toggle-note-pin', (event) => {
+  const id = trustedNoteId(event);
+  if (id === null) return { ok: false, error: 'Unauthorized pin request' };
+  return notePinning.toggle(id);
+});
 ipcMain.on('pin-note', (event, id) => {
-  if (!trustedDashboard(event) || !Number.isSafeInteger(id)) return;
-  const note = getNoteById(id);
-  if (note) changeNote(id, { pinned: !note.pinned });
+  if (trustedDashboard(event) && Number.isSafeInteger(id) && id > 0) {
+    notePinning.toggle(id);
+  }
 });

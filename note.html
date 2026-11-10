@@ -55,6 +55,15 @@ body {
 #wb-hide  { background: #febc2e; }
 #wb-new   { background: #28c840; }
 #wb-dash  { background: #5ac8fa; font-size: 9px; border-radius: 4px; width: 20px; }
+#wb-pin {
+  width: 22px; height: 20px; line-height: 20px;
+  border-radius: 4px; background: rgba(0,0,0,0.12);
+  color: rgba(0,0,0,0.72); font-size: 13px;
+}
+#wb-pin:hover { color: #171717; background: rgba(0,0,0,0.20); }
+#wb-pin.pinned { background: #f5ad36; color: #362600; }
+#wb-pin:focus-visible { outline: 2px solid #333; outline-offset: 2px; }
+#wb-pin:disabled { cursor: wait; opacity: 0.65; }
 
 /* ── Color Strip ── */
 #color-row {
@@ -221,6 +230,8 @@ body {
     <button class="wb" id="wb-hide"    title="Hide">−</button>
     <button class="wb" id="wb-new"      title="New Note">+</button>
     <button class="wb" id="wb-dash"    title="Dashboard">≡</button>
+    <button class="wb" id="wb-pin" type="button" aria-pressed="false"
+            aria-label="Pin note on top" title="Pin note on top">📌</button>
     <button class="wb" id="wb-toolbar"  title="Toggle Toolbar" style="background:#a0a0a0; border-radius:4px; width:20px; font-size:9px;">▤</button>
   </div>
   <span style="font-size:11px; color:rgba(0,0,0,0.4); -webkit-app-region:drag; flex:1; text-align:center;">Ray's Note</span>
