@@ -84,8 +84,8 @@ test('stray temporary files are never treated as the actual notes file', (t) => 
 });
 
 test('renderer displays a save acknowledgment only after invoke succeeds', () => {
-  const source = fs.readFileSync(path.resolve(__dirname, '..', 'note.html'), 'utf8');
-  assert.match(source, /ipcRenderer\.invoke\('note-update', payload\)/);
+  const source = fs.readFileSync(path.resolve(__dirname, '..', 'src/renderer/note.js'), 'utf8');
+  assert.match(source, /noteAPI\.save\(payload\)/);
   assert.match(source, /reply\.ok !== true/);
   assert.match(source, /savedRevision = Math\.max/);
   assert.match(source, /flushPendingSave\(\)/);

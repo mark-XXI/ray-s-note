@@ -36,7 +36,7 @@ test('test user-data directory is local and Git ignored', () => {
 
 test('all literal renderer IPC send/invoke channels have main-process handlers', () => {
   const main = read('main.js');
-  const sends = [read('note.html'), read('dashboard.html')]
+  const sends = [read('src/preload/note.js'), read('src/preload/dashboard.js')]
     .flatMap((html) => [...html.matchAll(/ipcRenderer\.(?:send|invoke)\(\s*['"]([^'"]+)['"]/g)])
     .map((match) => match[1]);
   assert.ok(sends.length >= 8, 'unexpectedly few renderer IPC calls');
@@ -47,14 +47,15 @@ test('all literal renderer IPC send/invoke channels have main-process handlers',
 
 test('note editor exposes its expected content and editing controls', () => {
   const html = read('note.html');
+  const renderer = read('src/renderer/note.js');
   assert.match(html, /id="editor"[\s\S]*?contenteditable="true"/);
   for (const handler of ['closeNote', 'hideNote', 'newNote', 'openDash', 'toggleToolbar', 'setColor', 'insertTask']) {
-    assert.ok(html.includes(`${handler}(`), `missing editor control: ${handler}`);
+    assert.ok(renderer.includes(`${handler}(`), `missing editor control: ${handler}`);
   }
 });
 
 test('dashboard exposes note management actions', () => {
-  const html = read('dashboard.html');
+  const html = read('src/renderer/dashboard.js');
   for (const handler of ['showNote', 'hideNote', 'pinNote', 'deleteNote', 'newNote', 'renderList']) {
     assert.ok(html.includes(`${handler}(`), `missing dashboard action: ${handler}`);
   }

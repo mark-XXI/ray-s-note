@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen, Tray, Menu, nativeImage, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Tray, Menu, nativeImage, dialog, session } = require('electron');
 const path = require('path');
 const fs   = require('fs');
 const crypto = require('crypto');
@@ -9,6 +9,7 @@ const {
 } = require('./src/notes/note-model');
 const { startDesktopWatcher } = require('./desktop-pin');
 const { NoteLifecycle } = require('./src/windows/note-lifecycle');
+const { isTrustedFrame, isAuthorizedNoteUpdate } = require('./src/security/ipc-policy');
 
 // Explicitly opt into isolated local data for development testing.
 // Normal `npm start` and packaged builds retain their existing userData path.
@@ -114,7 +115,7 @@ function flushWindow(win) {
 ipcMain.on('app-flush-result', (event, result) => {
   if (!result || typeof result.requestId !== 'string') return;
   const request = pendingFlushes.get(result.requestId);
-  if (request && request.sender === event.sender) request.finish(result.ok);
+  if (request && trustedNoteId(event) !== null && request.sender === event.sender && typeof result.ok === 'boolean') request.finish(result.ok);
 });
 
 function removeNote(id) {
@@ -172,6 +173,13 @@ async function quitSafely() {
   }
 }
 
+// Local, packaged UI only: links, frames and popups must never navigate to remote pages.
+function lockRendererWindow(win) {
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.webContents.on('will-navigate', (event) => event.preventDefault());
+  win.webContents.on('will-attach-webview', (event) => event.preventDefault());
+}
+
 // ── Note Window ────────────────────────────────────────────────────────────────
 function openNoteWindow(note) {
   if (noteWins.has(note.id)) {
@@ -189,12 +197,16 @@ function openNoteWindow(note) {
     frame: false, transparent: false,
     resizable: true, skipTaskbar: true,
     alwaysOnTop: false,
-    webPreferences: { nodeIntegration: true, contextIsolation: false },
+    webPreferences: {
+      nodeIntegration: false, contextIsolation: true, sandbox: true,
+      preload: path.join(__dirname, 'src/preload/note.js'),
+    },
     backgroundColor: note.color || '#FFF9C4',
     show: false,
   });
 
   win._rayReady = false;
+  lockRendererWindow(win);
   win.loadFile('note.html');
 
   win.once('ready-to-show', () => {
@@ -243,10 +255,14 @@ function openDashboard() {
     width: 520, height: 600, minWidth: 400, minHeight: 400,
     title: "Ray's Note - Dashboard",
     frame: true, skipTaskbar: false,
-    webPreferences: { nodeIntegration: true, contextIsolation: false },
+    webPreferences: {
+      nodeIntegration: false, contextIsolation: true, sandbox: true,
+      preload: path.join(__dirname, 'src/preload/dashboard.js'),
+    },
     backgroundColor: '#1e1e2e', show: false,
   });
 
+  lockRendererWindow(dashWin);
   dashWin.setMenu(null);
   try { dashWin.setIcon(path.join(__dirname, 'note-icon.ico')); } catch {}
   dashWin.loadFile('dashboard.html');
@@ -311,6 +327,7 @@ function createNewNote() {
 
 // ── App Ready ─────────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
+  session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   try {
     allNotes = normalizeStoredNotes(noteStore.load());
   } catch (error) {
@@ -337,9 +354,7 @@ app.on('before-quit', (event) => {
 });
 // No unconditional exit write: it could overwrite unreadable data or stale edits.
 
-// ── IPC ───────────────────────────────────────────────────────────────────────
-ipcMain.handle('note-update', (_event, data) => saveNoteUpdate(data));
-
+// ── Authorized IPC — never trust arbitrary renderer calls ─────────────────────
 function noteIdFromSender(sender) {
   for (const [id, win] of noteWins) {
     if (!win.isDestroyed() && win.webContents === sender) return id;
@@ -347,26 +362,57 @@ function noteIdFromSender(sender) {
   return null;
 }
 
+function trustedNoteId(event) {
+  const id = noteIdFromSender(event.sender);
+  if (id === null) return null;
+  const win = noteWins.get(id);
+  return win && isTrustedFrame(event, win.webContents) ? id : null;
+}
+
+function trustedDashboard(event) {
+  return dashWin && !dashWin.isDestroyed() &&
+    isTrustedFrame(event, dashWin.webContents);
+}
+
+ipcMain.handle('note-update', (event, data) => {
+  const id = trustedNoteId(event);
+  if (id === null || !isAuthorizedNoteUpdate(id, data)) {
+    return { ok: false, error: 'Unauthorized note update' };
+  }
+  return saveNoteUpdate(data);
+});
+
 ipcMain.on('note-close', (event) => {
-  const id = noteIdFromSender(event.sender);
+  const id = trustedNoteId(event);
   if (id !== null) void noteLifecycle.hide(id);
 });
-
-// The yellow Hide button is now persistent, like Dashboard Hide.
 ipcMain.on('note-minimize', (event) => {
-  const id = noteIdFromSender(event.sender);
+  const id = trustedNoteId(event);
   if (id !== null) void noteLifecycle.hide(id);
 });
-ipcMain.on('note-new', () => createNewNote());
-ipcMain.on('open-dashboard', () => openDashboard());
-ipcMain.on('get-notes', () => sendDashNotes());
-
-ipcMain.on('show-note', (_event, id) => { void noteLifecycle.show(id); });
-ipcMain.on('hide-note', (_event, id) => { void noteLifecycle.hide(id); });
-ipcMain.on('delete-note', (_event, id) => { void noteLifecycle.delete(id); });
-
-ipcMain.on('new-note-from-dash', () => createNewNote());
-ipcMain.on('pin-note', (_event, id) => {
-  const n = getNoteById(id);
-  if (n) changeNote(id, { pinned: !n.pinned });
+ipcMain.on('note-new', (event) => {
+  if (trustedNoteId(event) !== null) createNewNote();
+});
+ipcMain.on('open-dashboard', (event) => {
+  if (trustedNoteId(event) !== null) openDashboard();
+});
+ipcMain.on('get-notes', (event) => {
+  if (trustedDashboard(event)) sendDashNotes();
+});
+ipcMain.on('show-note', (event, id) => {
+  if (trustedDashboard(event) && Number.isSafeInteger(id)) void noteLifecycle.show(id);
+});
+ipcMain.on('hide-note', (event, id) => {
+  if (trustedDashboard(event) && Number.isSafeInteger(id)) void noteLifecycle.hide(id);
+});
+ipcMain.on('delete-note', (event, id) => {
+  if (trustedDashboard(event) && Number.isSafeInteger(id)) void noteLifecycle.delete(id);
+});
+ipcMain.on('new-note-from-dash', (event) => {
+  if (trustedDashboard(event)) createNewNote();
+});
+ipcMain.on('pin-note', (event, id) => {
+  if (!trustedDashboard(event) || !Number.isSafeInteger(id)) return;
+  const note = getNoteById(id);
+  if (note) changeNote(id, { pinned: !note.pinned });
 });
