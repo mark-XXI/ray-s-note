@@ -55,7 +55,7 @@ noteAPI.onInit((note) => {
   editor.style.direction = dir;
   editor.style.textAlign = dir === 'rtl' ? 'right' : 'left';
   szLbl.textContent      = fontSize;
-  document.body.style.background = noteColor;
+  document.getElementById('note-shell').style.background = noteColor;
 
   // mark active color dot
   document.querySelectorAll('.cd').forEach(d => {
@@ -239,7 +239,7 @@ function setColor(dot) {
   document.querySelectorAll('.cd').forEach(d => d.classList.remove('on'));
   dot.classList.add('on');
   noteColor = dot.dataset.c;
-  document.body.style.background = noteColor;
+  document.getElementById('note-shell').style.background = noteColor;
   schedSave();
 }
 

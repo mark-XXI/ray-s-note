@@ -10,20 +10,36 @@
 
 body {
   font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
-  background: var(--nc, #FFF9C4);
+  background: transparent;
   color: #2c2c2c;
   height: 100vh;
-  display: flex;
-  flex-direction: column;
   overflow: hidden;
   user-select: none;
 }
 
+/* Entire sticky note is one surface: corners, header, editor and footer
+   are clipped together rather than independently rounded panels. */
+#note-shell {
+  --corner-radius: 16px;
+  width: 100%;
+  height: 100vh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--corner-radius);
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--nc, #FFF9C4);
+  box-shadow: inset 0 0 0 1px rgba(34, 33, 30, 0.12);
+}
+
+
 /* ── Title Bar (drag area) ── */
 #titlebar {
   -webkit-app-region: drag;
-  background: rgba(0,0,0,0.10);
-  padding: 5px 8px 4px;
+  background: rgba(0,0,0,0.075);
+  padding: 8px 10px 7px;
+  min-height: 34px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -33,7 +49,7 @@ body {
 #win-btns {
   -webkit-app-region: no-drag;
   display: flex;
-  gap: 5px;
+  gap: 6px;
   align-items: center;
 }
 
@@ -46,11 +62,12 @@ body {
   line-height: 16px;
   text-align: center;
   color: transparent;
-  transition: color 0.15s, transform 0.12s;
+  transition: color 0.15s, transform 0.12s, box-shadow 0.15s;
   flex-shrink: 0;
   padding: 0;
 }
-.wb:hover { color: rgba(0,0,0,0.7); transform: scale(1.15); }
+.wb:hover { color: rgba(0,0,0,0.7); transform: scale(1.10); }
+.wb:focus-visible { outline: 2px solid rgba(34,34,34,0.72); outline-offset: 2px; }
 #wb-close { background: #ff5f57; }
 #wb-hide  { background: #febc2e; }
 #wb-new   { background: #28c840; }
@@ -79,35 +96,37 @@ body {
 /* ── Color Strip ── */
 #color-row {
   -webkit-app-region: no-drag;
-  padding: 4px 8px;
+  padding: 7px 12px;
   display: flex;
-  gap: 5px;
+  gap: 8px;
   align-items: center;
-  background: rgba(0,0,0,0.05);
-  border-bottom: 1px solid rgba(0,0,0,0.08);
+  background: rgba(255,255,255,0.10);
+  border-bottom: 1px solid rgba(35,30,26,0.10);
   flex-shrink: 0;
 }
 
 .cd {
-  width: 14px; height: 14px;
+  width: 15px; height: 15px;
   border-radius: 50%;
-  border: 1.5px solid rgba(0,0,0,0.18);
+  border: 1px solid rgba(0,0,0,0.2);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.32);
   cursor: pointer;
   transition: transform 0.12s;
   flex-shrink: 0;
 }
 .cd:hover { transform: scale(1.25); }
-.cd.on    { border-color: rgba(0,0,0,0.55); transform: scale(1.2); }
+.cd.on    { outline: 2px solid rgba(25,25,25,0.60); outline-offset: 2px; }
+.cd:focus-visible { outline: 2px solid rgba(25,25,25,0.7); outline-offset: 3px; }
 
 /* ── Toolbar ── */
 #toolbar {
   -webkit-app-region: no-drag;
-  padding: 4px 8px;
+  padding: 7px 9px;
   display: flex;
-  gap: 3px;
+  gap: 4px;
   align-items: center;
-  background: rgba(0,0,0,0.04);
-  border-bottom: 1px solid rgba(0,0,0,0.08);
+  background: rgba(255,255,255,0.075);
+  border-bottom: 1px solid rgba(35,30,26,0.10);
   flex-shrink: 0;
   flex-wrap: wrap;
 }
@@ -115,15 +134,15 @@ body {
 .tb {
   background: rgba(0,0,0,0.08);
   border: none;
-  border-radius: 4px;
-  padding: 2px 6px;
+  border-radius: 6px;
+  padding: 3px 6px;
   cursor: pointer;
   font-size: 12px;
   font-weight: 600;
   color: #333;
   transition: background 0.12s;
-  min-width: 24px;
-  height: 22px;
+  min-width: 25px;
+  height: 25px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -131,7 +150,8 @@ body {
   user-select: none;
 }
 .tb:hover { background: rgba(0,0,0,0.18); }
-.tb.on    { background: rgba(0,0,0,0.25); }
+.tb.on    { background: rgba(0,0,0,0.22); }
+.tb:focus-visible { outline: 2px solid rgba(34,34,34,0.72); outline-offset: 1px; }
 
 .sep { width: 1px; height: 16px; background: rgba(0,0,0,0.15); margin: 0 2px; flex-shrink: 0; }
 
@@ -140,7 +160,8 @@ body {
 /* ── Editor ── */
 #editor {
   flex: 1;
-  padding: 10px 12px;
+  padding: 13px 15px 16px;
+  min-height: 0;
   outline: none;
   font-size: 15px;
   line-height: 1.75;
@@ -215,17 +236,20 @@ body {
 /* ── Status bar ── */
 #statusbar {
   -webkit-app-region: no-drag;
-  padding: 3px 10px;
+  padding: 7px 12px 8px;
+  min-height: 28px;
   font-size: 10px;
   color: rgba(0,0,0,0.35);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-top: 1px solid rgba(0,0,0,0.07);
+  background: rgba(255,255,255,0.085);
+  border-top: 1px solid rgba(35,30,26,0.09);
   flex-shrink: 0;
   gap: 6px;
 }
-#save-dot { font-size: 14px; line-height: 1; }
+#save-dot { font-size: 13px; line-height: 1; }
+#save-lbl { margin-left: auto; }
 
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 4px; }
@@ -233,6 +257,7 @@ body {
 </style>
 </head>
 <body>
+<div id="note-shell">
 
 <!-- Title Bar -->
 <div id="titlebar">
@@ -299,6 +324,7 @@ body {
   <span id="save-dot" title="Saved">●</span>
   <span id="save-lbl">Saved</span>
 </div>
+</div><!-- #note-shell -->
 
 <script src="src/renderer/note-html.js"></script>
 <script src="src/renderer/note-tasks.js"></script>

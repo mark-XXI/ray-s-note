@@ -12,6 +12,7 @@ const { createWindowsDesktopAdapter } = require('./src/windows/win32-desktop');
 const { NoteLifecycle } = require('./src/windows/note-lifecycle');
 const { NotePinning } = require('./src/windows/note-pinning');
 const { NoteGeometry } = require('./src/windows/note-geometry');
+const { installRoundedShape } = require('./src/windows/note-window-shape');
 const { isTrustedFrame, isAuthorizedNoteUpdate } = require('./src/security/ipc-policy');
 
 // Explicitly opt into isolated local data for development testing.
@@ -254,7 +255,7 @@ function openNoteWindow(note) {
   const win = new BrowserWindow({
     ...placement,
     minWidth: 200, minHeight: 200,
-    frame: false, transparent: false,
+    frame: false, transparent: false, roundedCorners: true,
     resizable: true, skipTaskbar: true,
     alwaysOnTop: note.pinned === true,
     webPreferences: {
@@ -266,6 +267,7 @@ function openNoteWindow(note) {
   });
 
   win._rayReady = false;
+  installRoundedShape(win, { warn: error => console.warn("[Ray's Note] Window rounding unavailable:", error.message || String(error)) });
   lockRendererWindow(win);
   win.loadFile('note.html');
 
