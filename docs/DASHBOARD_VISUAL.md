@@ -10,3 +10,11 @@
 **Windows tests:** check round corners against a contrasting wallpaper; drag all four edges and corners repeatedly; ensure the radius is restored after resizing; change note colors; use Win+D and pin/unpin; exercise dashboard search/filter/manage actions; close/restart and verify note persistence. If native resize is impaired, do not commit, and use the documented environment variable to compare behavior.
 
 Native window region APIs are Windows-specific and are not functionally verifiable from the Linux/Chromium CI environment. Do not claim Windows GUI pass based on Node tests.
+
+## Pre-release dashboard redesign — theme support
+
+- The dashboard uses a simplified header, a single compact statistics strip, smaller note cards and clearly separated controls. Existing IDs, note management operations, search, filters, announcements and focus recovery remain intact.
+- Appearance can be set to **System**, **Light** or **Dark** using the dashboard header selector. System follows `prefers-color-scheme` dynamically. A manually selected preference is stored under `rays-note-dashboard-theme-v1` in Chromium localStorage when permitted, with a safe in-memory System fallback if storage is unavailable.
+- Appearance changes are dashboard-only: no note data, native desktop integration, pin state, IPC route or persisted note schema changes.
+- The original Batch 16 release configuration is retained as applied and uncommitted; this UI revision must be tested before packaging or final commit.
+- Manual Windows GUI checks: all three theme choices, system-theme switching, reopening the dashboard after a manual theme selection, live stats and card actions, keyboard search/filter/focus, long previews, narrow window, Win+D/pinning, rounded note corners and autosave.

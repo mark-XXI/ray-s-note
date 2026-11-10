@@ -1,324 +1,393 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'none'; connect-src 'none'; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
-<title>Ray's Note — Dashboard</title>
-<style>
-/* Dashboard visual polish — same palette, same data and actions. */
-* { box-sizing: border-box; margin: 0; padding: 0; }
-:root {
-  color-scheme: dark;
-  --bg: #1e1e2e;
-  --surface: #2a2a3e;
-  --surface2: #33334d;
-  --accent: #7c6fff;
-  --accent2: #5ac8fa;
-  --text: #e0e0f0;
-  --text2: #a4a4c1;
-  --border: rgba(222,222,255,0.09);
-  --danger: #ff6b6b;
-  --success: #28c840;
-  --warn: #febc2e;
-  --radius: 12px;
-}
-body {
-  font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  line-height: 1.45;
-}
-button, input { font: inherit; }
-button:focus-visible, input:focus-visible {
-  outline: 2px solid var(--accent2);
-  outline-offset: 2px;
-}
-#header {
-  flex: 0 0 auto;
-  background: var(--surface);
-  padding: 20px 22px 17px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  border-bottom: 1px solid var(--border);
-}
-#header h1 {
-  flex: 1;
-  font-size: 17px;
-  font-weight: 650;
-  letter-spacing: -0.35px;
-  min-width: 0;
-}
-#header h1 span { color: #ab9eff; }
-#btn-new-dash {
-  background: var(--accent);
-  color: #fff;
-  border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 10px;
-  padding: 9px 14px;
-  font-size: 12px;
-  font-weight: 650;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 120ms ease, transform 120ms ease;
-}
-#btn-new-dash:hover { background: #9288ff; }
-#btn-new-dash:active { transform: translateY(1px); }
-#stats {
-  flex: 0 0 auto;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  padding: 13px 20px 12px;
-  background: var(--bg);
-}
-.stat-box {
-  min-width: 0;
-  text-align: left;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  border-radius: 11px;
-  padding: 11px 10px 10px;
-}
-.stat-num {
-  font-size: 22px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.1;
-  color: #a89cff;
-}
-.stat-lbl {
-  font-size: 10px;
-  color: var(--text2);
-  margin-top: 7px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-#filter-bar {
-  flex: 0 0 auto;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 7px 20px 12px;
-  background: var(--bg);
-}
-.ftab {
-  color: var(--text2);
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  cursor: pointer;
-  font-size: 11px;
-  padding: 6px 12px;
-  transition: background 120ms ease, color 120ms ease;
-}
-.ftab:hover { background: var(--surface2); color: var(--text); }
-.ftab.on { background: rgba(124,111,255,0.18); border-color: #8174d2; color: #dad5ff; font-weight: 650; }
-#search-row {
-  flex: 0 0 auto;
-  position: relative;
-  background: var(--bg);
-  padding: 0 20px 12px;
-}
-#search-input {
-  width: 100%;
-  min-width: 0;
-  color: var(--text);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  font-size: 12px;
-  padding: 10px 13px 10px 34px;
-  outline: none;
-  transition: border-color 120ms ease, box-shadow 120ms ease;
-}
-#search-row::before {
-  content: '';
-  position: absolute;
-  left: 34px;
-  top: 11px;
-  width: 10px;
-  height: 10px;
-  border: 1.7px solid var(--text2);
-  border-radius: 50%;
-  pointer-events: none;
-  opacity: 0.8;
-}
-#search-row::after {
-  content: '';
-  position: absolute;
-  left: 44px;
-  top: 24px;
-  width: 6px;
-  height: 1.5px;
-  background: var(--text2);
-  transform: rotate(45deg);
-  transform-origin: left center;
-  pointer-events: none;
-  opacity: 0.8;
-}
-#search-input::placeholder { color: var(--text2); }
-#search-input:focus { border-color: #9184f0; box-shadow: 0 0 0 3px rgba(124,111,255,0.14); }
-#notes-wrap {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 0 20px 18px;
-  scrollbar-gutter: stable;
-}
-.empty-state {
-  color: var(--text2);
-  text-align: center;
-  font-size: 13px;
-  border: 1px dashed rgba(224,224,240,0.15);
-  border-radius: 12px;
-  padding: 50px 16px;
-  background: rgba(255,255,255,0.025);
-}
-.empty-state div { font-size: 28px; margin-bottom: 10px; }
-.note-card {
-  display: grid;
-  grid-template-columns: 11px minmax(0, 1fr);
-  gap: 8px 11px;
-  align-items: start;
-  padding: 13px 13px 12px;
-  margin-bottom: 10px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface);
-  transition: border-color 120ms ease, background 120ms ease;
-  min-width: 0;
-}
-.note-card:hover { background: #2d2d44; border-color: rgba(195,191,255,0.22); }
-.note-card.pinned { border-color: rgba(254,188,46,0.32); }
-.note-swatch {
-  width: 11px;
-  height: 11px;
-  border-radius: 4px;
-  border: 1px solid rgba(0,0,0,0.18);
-  margin-top: 5px;
-}
-.note-body { min-width: 0; }
-.note-preview {
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 550;
-  line-height: 1.5;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  margin-bottom: 7px;
-}
-.note-preview.empty-preview { font-style: italic; color: var(--text2); font-weight: 400; }
-.note-meta { color: var(--text2); font-size: 10px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.badge { border-radius: 6px; font-size: 9px; font-weight: 550; padding: 2px 6px; white-space: nowrap; }
-.badge-open { background: rgba(40,200,64,0.12); color: #79d68b; }
-.badge-hidden { background: rgba(224,224,240,0.08); color: var(--text2); }
-.badge-pinned { background: rgba(254,188,46,0.1); color: #efca6d; }
-.note-actions {
-  display: flex;
-  grid-column: 2;
-  gap: 6px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-.na {
-  background: var(--surface2);
-  border: 1px solid rgba(255,255,255,0.045);
-  color: #c5c5e2;
-  border-radius: 7px;
-  padding: 5px 10px;
-  font-size: 11px;
-  cursor: pointer;
-  min-height: 28px;
-  transition: background 120ms ease, color 120ms ease;
-}
-.na:hover { background: #41415e; color: #fff; }
-.na.show { color: #84d8ff; }
-.na.hide { color: #c5c5e2; }
-.na.pin { color: #e9cd89; }
-.na.del { color: #fa9999; }
-.na.del:hover { color: #ffbaba; background: rgba(255,107,107,0.16); }
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-#footer {
-  flex: 0 0 auto;
-  background: var(--surface);
-  border-top: 1px solid var(--border);
-  padding: 10px 14px;
-  text-align: center;
-  color: var(--text2);
-  font-size: 10px;
-}
-@media (prefers-reduced-motion: reduce) {
-  #btn-new-dash, .ftab, .note-card, .na, #search-input { transition: none !important; }
-}
-::-webkit-scrollbar { width: 7px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(222,222,255,0.16); border-radius: 9px; }
-@media (max-width: 430px) {
-  #header { padding: 14px; }
-  #stats { gap: 5px; padding: 10px 12px; }
-  .stat-box { padding: 9px 6px; }
-  .stat-lbl { font-size: 9px; }
-  #filter-bar { padding: 6px 12px 10px; }
-  #search-row { padding: 0 12px 10px; }
-  #search-row::before { left: 26px; }
-  #search-row::after { left: 36px; }
-  #notes-wrap { padding: 0 12px 14px; }
-}
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'none'; connect-src 'none'; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Ray's Note — Dashboard</title>
+  <style>
+    /* Dashboard refresh: system/light/dark palettes share the same components. */
+    :root {
+      color-scheme: light;
+      --bg: #f6f7fb;
+      --surface: #ffffff;
+      --surface2: #f2f3f8;
+      --surface-hover: #fafaff;
+      --text: #24273b;
+      --text2: #6f7589;
+      --border: #e4e6ee;
+      --accent: #635be8;
+      --accent-hover: #5249d7;
+      --accent-soft: #eeedff;
+      --accent-text: #5149bd;
+      --on-accent: #ffffff;
+      --focus: #796ff0;
+      --success: #217755;
+      --warn: #916422;
+      --danger: #ae3852;
+      --danger-soft: #fff0f1;
+      --shadow: 0 1px 2px rgba(27, 31, 60, 0.04);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --bg: #111521;
+        --surface: #1b2030;
+        --surface2: #252b3e;
+        --surface-hover: #22283a;
+        --text: #f0f2fa;
+        --text2: #a5adc1;
+        --border: #343b4f;
+        --accent: #938aff;
+        --accent-hover: #aaa2ff;
+        --accent-soft: #302d51;
+        --accent-text: #c1baff;
+        --on-accent: #17152a;
+        --focus: #b2aaff;
+        --success: #85ddaf;
+        --warn: #f6c983;
+        --danger: #ff9daf;
+        --danger-soft: #3e2939;
+        --shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+      }
+    }
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #111521;
+      --surface: #1b2030;
+      --surface2: #252b3e;
+      --surface-hover: #22283a;
+      --text: #f0f2fa;
+      --text2: #a5adc1;
+      --border: #343b4f;
+      --accent: #938aff;
+      --accent-hover: #aaa2ff;
+      --accent-soft: #302d51;
+      --accent-text: #c1baff;
+      --on-accent: #17152a;
+      --focus: #b2aaff;
+      --success: #85ddaf;
+      --warn: #f6c983;
+      --danger: #ff9daf;
+      --danger-soft: #3e2939;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font: 13px/1.45 'Segoe UI', Tahoma, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    button, input, select { font: inherit; }
+    button { cursor: pointer; }
+    button:focus-visible, input:focus-visible, select:focus-visible {
+      outline: 2px solid var(--focus);
+      outline-offset: 2px;
+    }
+    .sr-only {
+      position: absolute; width: 1px; height: 1px; padding: 0;
+      margin: -1px; overflow: hidden; clip-path: inset(50%);
+      white-space: nowrap; border: 0;
+    }
+    #header {
+      flex: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 18px 20px 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .brand-mark {
+      width: 35px; height: 35px; flex: none;
+      display: grid; place-items: center;
+      color: var(--accent-text);
+      background: var(--accent-soft);
+      border-radius: 11px;
+    }
+    .brand-mark svg { width: 19px; height: 19px; }
+    .brand-copy { min-width: 0; }
+    .eyebrow {
+      color: var(--text2); font-size: 9px; font-weight: 700;
+      letter-spacing: 1.1px; text-transform: uppercase;
+    }
+    #header h1 {
+      margin: 2px 0 0;
+      font-size: 17px; font-weight: 700;
+      letter-spacing: -0.55px;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+    .header-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+    .theme-field { position: relative; flex: none; }
+    #theme-select {
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text);
+      border-radius: 9px;
+      padding: 9px 23px 9px 9px;
+      font-size: 11px;
+      min-height: 34px;
+      max-width: 90px;
+      cursor: pointer;
+    }
+    #btn-new-dash {
+      display: inline-flex; align-items: center; justify-content: center;
+      gap: 6px; min-height: 35px; padding: 8px 12px;
+      border-radius: 9px; border: 1px solid transparent;
+      background: var(--accent); color: var(--on-accent);
+      font-size: 12px; font-weight: 650; white-space: nowrap;
+      transition: background 140ms ease;
+    }
+    #btn-new-dash:hover { background: var(--accent-hover); }
+    #btn-new-dash svg { width: 13px; height: 13px; }
+    #stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      flex: none;
+      margin: 15px 20px 0;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .stat-box { min-width: 0; padding: 11px 12px 10px; }
+    .stat-box + .stat-box { border-left: 1px solid var(--border); }
+    .stat-num {
+      font-size: 20px; line-height: 1.15; font-weight: 720;
+      letter-spacing: -0.7px; font-variant-numeric: tabular-nums;
+      color: var(--text);
+    }
+    .stat-lbl {
+      margin-top: 3px; font-size: 10px; color: var(--text2);
+      white-space: nowrap;
+    }
+    .controls { flex: none; padding: 18px 20px 11px; }
+    .controls-line {
+      display: flex; justify-content: space-between;
+      gap: 8px; align-items: center; margin-bottom: 11px;
+    }
+    .controls h2 { margin: 0; font-size: 14px; font-weight: 700; letter-spacing: -0.3px; white-space: nowrap; }
+    #filter-bar { display: flex; align-items: center; gap: 3px; min-width: 0; }
+    .ftab {
+      padding: 6px 9px; white-space: nowrap;
+      color: var(--text2); background: transparent;
+      border: 1px solid transparent; border-radius: 7px;
+      font-size: 10px; font-weight: 550;
+      transition: background 140ms ease, color 140ms ease;
+    }
+    .ftab:hover { background: var(--surface2); color: var(--text); }
+    .ftab.on {
+      background: var(--accent-soft); color: var(--accent-text);
+      border-color: transparent; font-weight: 700;
+    }
+    #search-row { position: relative; }
+    .search-icon {
+      pointer-events: none; position: absolute; left: 12px; top: 50%;
+      transform: translateY(-50%); color: var(--text2);
+      width: 15px; height: 15px;
+    }
+    #search-input {
+      display: block; width: 100%; min-width: 0; min-height: 38px;
+      padding: 9px 12px 9px 35px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      color: var(--text); background: var(--surface);
+      font-size: 12px; outline: none;
+      transition: border-color 140ms ease, box-shadow 140ms ease;
+    }
+    #search-input::placeholder { color: var(--text2); opacity: 1; }
+    #search-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+    #notes-wrap {
+      flex: 1; min-height: 0;
+      padding: 0 20px 14px;
+      overflow-y: auto; overflow-x: hidden;
+      scrollbar-gutter: stable;
+    }
+    .note-card {
+      display: grid;
+      grid-template-columns: 10px minmax(0, 1fr);
+      align-items: start;
+      gap: 0 10px;
+      min-width: 0;
+      margin: 0 0 8px;
+      padding: 12px 13px 11px;
+      border-radius: 11px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      transition: border-color 140ms ease, background 140ms ease;
+    }
+    .note-card:hover { border-color: var(--accent); background: var(--surface-hover); }
+    .note-card:focus-within { border-color: var(--accent); }
+    .note-swatch {
+      width: 10px; height: 10px; margin-top: 5px;
+      border-radius: 3px; border: 1px solid rgba(38, 42, 62, 0.16);
+    }
+    .note-body { min-width: 0; }
+    .note-preview {
+      margin-bottom: 5px;
+      overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+      font-size: 12px; line-height: 1.5; color: var(--text);
+      font-weight: 650;
+    }
+    .note-preview.empty-preview { font-weight: 400; font-style: italic; color: var(--text2); }
+    .note-meta {
+      display: flex; align-items: center; gap: 8px;
+      min-height: 15px; color: var(--text2); font-size: 10px;
+      flex-wrap: wrap;
+    }
+    .badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      color: var(--text2); font-size: 10px;
+      white-space: nowrap;
+    }
+    .badge::before {
+      content: ''; width: 5px; height: 5px;
+      border-radius: 50%; background: currentColor;
+    }
+    .badge-open { color: var(--success); }
+    .badge-hidden { color: var(--text2); }
+    .badge-pinned { color: var(--warn); }
+    .note-actions {
+      grid-column: 2;
+      display: flex; flex-wrap: wrap;
+      gap: 5px; min-width: 0; margin-top: 9px;
+    }
+    .na {
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text2);
+      padding: 5px 10px; min-height: 27px;
+      font-size: 10px; font-weight: 600;
+      transition: background 140ms ease, color 140ms ease;
+    }
+    .na:hover { background: var(--accent-soft); color: var(--accent-text); }
+    .na.show { background: var(--accent-soft); color: var(--accent-text); border-color: transparent; }
+    .na.hide, .na.pin { color: var(--text); }
+    .na.del { margin-left: auto; color: var(--danger); background: transparent; }
+    .na.del:hover { background: var(--danger-soft); }
+    .empty-state {
+      margin-top: 12px; min-height: 160px;
+      padding: 34px 16px;
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      text-align: center;
+      border: 1px dashed var(--border); border-radius: 12px;
+      background: var(--surface);
+    }
+    .empty-glyph {
+      display: grid; place-items: center;
+      width: 37px; height: 37px; margin-bottom: 12px;
+      color: var(--accent-text); background: var(--accent-soft);
+      border-radius: 11px;
+    }
+    .empty-glyph svg { width: 18px; height: 18px; }
+    .empty-state strong { font-size: 13px; font-weight: 700; }
+    .empty-state p { margin: 4px 0 0; color: var(--text2); font-size: 11px; }
+    #footer {
+      flex: none;
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 6px; padding: 9px 20px;
+      border-top: 1px solid var(--border);
+      color: var(--text2); font-size: 10px;
+      background: var(--surface);
+    }
+    ::-webkit-scrollbar { width: 7px; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    @media (max-width: 430px) {
+      #header { padding: 14px 12px; gap: 8px; }
+      .brand { gap: 7px; }
+      .brand-mark { width: 30px; height: 30px; border-radius: 9px; }
+      #header h1 { font-size: 15px; }
+      .header-actions { gap: 5px; }
+      #theme-select { padding: 8px 17px 8px 6px; max-width: 72px; font-size: 10px; }
+      #btn-new-dash { padding: 8px 9px; font-size: 10px; }
+      #stats { margin: 12px 12px 0; }
+      .stat-box { padding: 10px 7px; }
+      .stat-num { font-size: 18px; }
+      .stat-lbl { font-size: 9px; }
+      .controls { padding: 14px 12px 10px; }
+      .ftab { padding: 5px 7px; }
+      #notes-wrap { padding: 0 12px 12px; }
+      #footer { padding: 9px 12px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #btn-new-dash, .ftab, .note-card, .na, #search-input { transition: none !important; }
+    }
+  </style>
 </head>
 <body>
+  <header id="header">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="5" y="3.5" width="14" height="17" rx="2.8"/>
+          <path d="M9 9h6M9 13h6M9 17h3"/>
+        </svg>
+      </div>
+      <div class="brand-copy">
+        <div class="eyebrow">Ray's Note</div>
+        <h1>My notes</h1>
+      </div>
+    </div>
+    <div class="header-actions">
+      <label class="theme-field" for="theme-select">
+        <span class="sr-only">Appearance</span>
+        <select id="theme-select" aria-label="Dashboard appearance" title="Dashboard appearance">
+          <option value="system">System</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </label>
+      <button id="btn-new-dash" type="button" aria-label="Create new note">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        New note
+      </button>
+    </div>
+  </header>
 
-<div id="header">
-  <h1>Ray's <span>Note</span> - Dashboard</h1>
-  <button id="btn-new-dash" type="button" aria-label="Create new note">+ New Note</button>
-</div>
+  <section id="stats" aria-label="Note overview">
+    <div class="stat-box"><div class="stat-num" id="st-total">0</div><div class="stat-lbl">All notes</div></div>
+    <div class="stat-box"><div class="stat-num" id="st-open">0</div><div class="stat-lbl">On desktop</div></div>
+    <div class="stat-box"><div class="stat-num" id="st-hidden">0</div><div class="stat-lbl">Hidden</div></div>
+    <div class="stat-box"><div class="stat-num" id="st-pinned">0</div><div class="stat-lbl">Pinned</div></div>
+  </section>
 
-<div id="stats">
-  <div class="stat-box">
-    <div class="stat-num" id="st-total">0</div>
-    <div class="stat-lbl">Total Notes</div>
+  <section class="controls" aria-label="Find and filter notes">
+    <div class="controls-line">
+      <h2>Browse</h2>
+      <div id="filter-bar" role="group" aria-label="Filter notes">
+        <button type="button" class="ftab on" data-f="all" aria-pressed="true">All</button>
+        <button type="button" class="ftab" data-f="open" aria-pressed="false">Desktop</button>
+        <button type="button" class="ftab" data-f="hidden" aria-pressed="false">Hidden</button>
+        <button type="button" class="ftab" data-f="pinned" aria-pressed="false">Pinned</button>
+      </div>
+    </div>
+    <div id="search-row">
+      <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="10.8" cy="10.8" r="6.2"/><path d="m16 16 4.5 4.5"/></svg>
+      <input id="search-input" type="search" aria-label="Search notes" autocomplete="off" placeholder="Search your notes" spellcheck="false">
+      <div id="search-count" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+    </div>
+  </section>
+
+  <div id="notes-wrap" role="region" aria-label="Notes list">
+    <div class="empty-state"><div class="empty-glyph" aria-hidden="true">+</div><strong>No notes yet</strong><p>Create a note to get started.</p></div>
   </div>
-  <div class="stat-box">
-    <div class="stat-num" id="st-open" style="color:var(--success)">0</div>
-    <div class="stat-lbl">On Desktop</div>
-  </div>
-  <div class="stat-box">
-    <div class="stat-num" id="st-hidden" style="color:var(--text2)">0</div>
-    <div class="stat-lbl">Hidden</div>
-  </div>
-  <div class="stat-box">
-    <div class="stat-num" id="st-pinned" style="color:var(--warn)">0</div>
-    <div class="stat-lbl">Pinned</div>
-  </div>
-</div>
-
-<div id="filter-bar" role="group" aria-label="Filter notes">
-  <button type="button" class="ftab on" data-f="all" aria-pressed="true">All</button>
-  <button type="button" class="ftab" data-f="open" aria-pressed="false">On Desktop</button>
-  <button type="button" class="ftab" data-f="hidden" aria-pressed="false">Hidden</button>
-  <button type="button" class="ftab" data-f="pinned" aria-pressed="false">Pinned</button>
-</div>
-
-<div id="search-row">
-  <input id="search-input" type="search" aria-label="Search notes" autocomplete="off" placeholder="Search notes..." spellcheck="false">
-  <div id="search-count" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
-</div>
-
-<div id="notes-wrap" role="region" aria-label="Notes list">
-  <div class="empty-state"><div>📋</div>No notes yet — create one!</div>
-</div>
-
-<div id="footer">Notes are saved automatically · Ray's Note v1.0</div>
-
-<script src="src/renderer/keyboard.js"></script>
-<script src="src/renderer/dashboard.js"></script>
+  <footer id="footer"><span>Changes saved automatically</span><span>Ray's Note 1.0</span></footer>
+  <script src="src/renderer/keyboard.js"></script>
+  <script src="src/renderer/dashboard.js"></script>
 </body>
 </html>

@@ -5,6 +5,24 @@ const dashboardAPI = window.raysDashboard;
 let allNotes  = [];
 let curFilter = 'all';
 
+// The dashboard theme is independent of note colors and never alters note data.
+// System follows the operating system; explicit choices survive dashboard restarts
+// when Chromium permits localStorage for the local application origin.
+const DASHBOARD_THEME_KEY = 'rays-note-dashboard-theme-v1';
+const themeSelect = document.getElementById('theme-select');
+function setDashboardTheme(value, persist = false) {
+  const mode = ['system', 'light', 'dark'].includes(value) ? value : 'system';
+  document.documentElement.setAttribute('data-theme', mode);
+  themeSelect.value = mode;
+  if (persist) {
+    try { window.localStorage.setItem(DASHBOARD_THEME_KEY, mode); } catch { /* storage may be restricted */ }
+  }
+}
+let preferredTheme = 'system';
+try { preferredTheme = window.localStorage.getItem(DASHBOARD_THEME_KEY) || 'system'; } catch { /* use OS theme */ }
+setDashboardTheme(preferredTheme);
+themeSelect.addEventListener('change', () => setDashboardTheme(themeSelect.value, true));
+
 // ── Receive notes from main ──────────────────────────────────────────────────
 dashboardAPI.onNotes((notes) => {
   allNotes = notes;
@@ -65,7 +83,9 @@ function renderList() {
   notes = [...notes].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
 
   if (!notes.length) {
-    wrap.innerHTML = `<div class="empty-state"><div>🔍</div>No notes found</div>`;
+    const message = allNotes.length ? 'No matching notes' : 'No notes yet';
+    const detail = allNotes.length ? 'Try a different search or filter.' : 'Create a note to get started.';
+    wrap.innerHTML = `<div class="empty-state"><div class="empty-glyph" aria-hidden="true">+</div><strong>${message}</strong><p>${detail}</p></div>`;
     return;
   }
 
@@ -88,8 +108,8 @@ function renderList() {
         <div class="note-preview ${preview ? '' : 'empty-preview'}"></div>
         <div class="note-meta">
           <span>${date}</span>
-          ${n.isOpen   ? '<span class="badge badge-open">● On Desktop</span>'  : '<span class="badge badge-hidden">○ Hidden</span>'}
-          ${n.pinned   ? '<span class="badge badge-pinned">📌 Pinned</span>'   : ''}
+          ${n.isOpen   ? '<span class="badge badge-open">On desktop</span>'  : '<span class="badge badge-hidden">Hidden</span>'}
+          ${n.pinned   ? '<span class="badge badge-pinned">Pinned</span>'   : ''}
         </div>
       </div>
       <div class="note-actions">
