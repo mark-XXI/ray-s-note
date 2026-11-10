@@ -217,7 +217,7 @@ function setColor(dot) {
 // ── Bullet ────────────────────────────────────────────────────────────────────
 function insertBullet() {
   preserveSelectionFocus();
-  document.execCommand('insertUnorderedList', false, null);
+  window.RaysNoteBullets.toggle(editor, window.getSelection());
   schedSave();
 }
 

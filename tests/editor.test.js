@@ -55,10 +55,44 @@ test('toolbar interaction preserves selection before formatting', () => {
   assert.match(note, /toolbar'\)\.addEventListener\('mousedown'/);
   assert.match(note, /event\.preventDefault\(\)/);
   assert.match(note, /function preserveSelectionFocus/);
-  assert.match(note, /document\.execCommand\('insertUnorderedList'/);
+  assert.match(note, /RaysNoteBullets\.toggle\(editor, window\.getSelection\(\)\)/);
 });
 test('security policy continues to sanitize HTML prior to save', () => {
   assert.match(note, /RaysNoteHtml\.sanitize\(window\.RaysNoteTasks\.serializedHTML\(editor\)\)/);
   assert.match(sanitizer, /blocked\.has\(tag\)/);
   assert.doesNotMatch(note, /ipcRenderer|require\('electron'\)/);
+});
+
+test('Shift+Enter creates a multiline task without altering Enter row creation', () => {
+  assert.match(tasks, /event\.shiftKey/);
+  assert.match(tasks, /insertTaskLineBreak\(node\)/);
+  assert.match(tasks, /createTextNode\(atEnd \?/);
+  assert.match(tasks, /row\.after\(next\)/);
+  assert.match(html, /white-space: pre-wrap/);
+});
+test('bullet controller loads before note and removes unreliable native list command', () => {
+  const bullets = read('src/renderer/note-bullets.js');
+  assert.ok(html.indexOf('src/renderer/note-bullets.js') < html.indexOf('src/renderer/note.js'));
+  assert.match(note, /RaysNoteBullets\.toggle\(editor, window\.getSelection\(\)\)/);
+  assert.doesNotMatch(note, /insertUnorderedList/);
+  assert.match(bullets, /list\.replaceWith\(fragment\)/);
+});
+test('bullet lists and task checkboxes are still sanitizer allowlisted', () => {
+  assert.match(sanitizer, /'ul', 'ol', 'li'/);
+  assert.match(sanitizer, /'task-row', 'task-text', 'done'/);
+  assert.match(note, /RaysNoteHtml\.sanitize\(window\.RaysNoteTasks\.serializedHTML\(editor\)\)/);
+});
+
+test('bullet insertion preserves selected paragraphs and never converts tasks', () => {
+  const bullets = read('src/renderer/note-bullets.js');
+  assert.match(bullets, /function selectedBlocks\(editor, selection\)/);
+  assert.match(bullets, /blocks\.forEach\(\(block, index\)/);
+  assert.match(bullets, /target\.classList\.contains\('task-row'\)/);
+  assert.match(bullets, /target\.after\(list\)/);
+});
+test('multiline task line break accounts for Chromium trailing-caret placement', () => {
+  assert.match(tasks, /const atEnd = remainder\.toString\(\)\.length === 0/);
+  assert.match(tasks, /atEnd \? '\\n\\n' : '\\n'/);
+  assert.match(tasks, /range\.setStart\(newline, 1\)/);
+  assert.match(tasks, /event\.preventDefault\(\)/);
 });

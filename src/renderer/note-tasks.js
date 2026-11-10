@@ -109,12 +109,46 @@
     return !label || !label.textContent.replace(/\u00a0/g, ' ').trim();
   }
 
+  function insertTaskLineBreak(label) {
+    const doc = label.ownerDocument;
+    const selection = doc.defaultView.getSelection();
+    if (!selection || !selection.rangeCount) return false;
+    const range = selection.getRangeAt(0);
+    if (!label.contains(range.commonAncestorContainer) &&
+        range.commonAncestorContainer !== label) return false;
+    // Use a plain newline instead of a browser-generated DIV/BR. This is
+    // reliably retained by the HTML sanitizer and the existing task serializer.
+    const remainder = range.cloneRange();
+    remainder.selectNodeContents(label);
+    remainder.setStart(range.endContainer, range.endOffset);
+    // A second newline is a trailing caret anchor when the split is at the
+    // end of the editable span. Without it, Chromium moves the next keystroke
+    // before the newline even though the selection says it is after it.
+    const atEnd = remainder.toString().length === 0;
+    range.deleteContents();
+    const newline = doc.createTextNode(atEnd ? '\n\n' : '\n');
+    range.insertNode(newline);
+    range.setStart(newline, 1);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return true;
+  }
+
   function onTaskKeydown(event, editor) {
     if (event.isComposing || event.altKey || event.ctrlKey || event.metaKey) return false;
     const node = event.target;
     if (!node || !node.classList || !node.classList.contains('task-text')) return false;
     const row = taskRow(node, editor);
     if (!row || taskText(row) !== node) return false;
+
+    // Shift+Enter is a line break INSIDE the same task; Enter alone keeps the
+    // established Batch 06 behavior of creating another checklist row.
+    if (event.key === 'Enter' && event.shiftKey) {
+      const inserted = insertTaskLineBreak(node);
+      if (inserted) event.preventDefault();
+      return inserted;
+    }
 
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
