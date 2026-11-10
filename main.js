@@ -11,6 +11,7 @@ const { DesktopLayer } = require('./src/windows/desktop-layer');
 const { createWindowsDesktopAdapter } = require('./src/windows/win32-desktop');
 const { NoteLifecycle } = require('./src/windows/note-lifecycle');
 const { NotePinning } = require('./src/windows/note-pinning');
+const { NoteGeometry } = require('./src/windows/note-geometry');
 const { isTrustedFrame, isAuthorizedNoteUpdate } = require('./src/security/ipc-policy');
 
 // Explicitly opt into isolated local data for development testing.
@@ -34,6 +35,7 @@ let storageErrorReported = false;
 // unchanged. If the Windows shell host is unavailable, normal windows remain usable.
 let desktopLayer = null;
 let desktopShellMessage = 0;
+let noteGeometry = null;
 
 function applyNativePinState(win, pinned) {
   if (pinned) {
@@ -223,6 +225,7 @@ async function quitSafely() {
     // The normal before-quit event runs again here; only the fully
     // acknowledged path is allowed to close its note windows.
     shutdownApproved = true;
+    if (noteGeometry) noteGeometry.stop();
     app.quit();
   } catch (error) {
     reportStorageFailure(error);
@@ -245,12 +248,11 @@ function openNoteWindow(note) {
     if (!ex.isDestroyed()) { ex.show(); ex.focus(); return; }
   }
 
-  const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize;
+  // Saved positions are preferred, but a temporarily disconnected monitor
+  // must never strand the window outside every current desktop work area.
+  const placement = noteGeometry.initial(note, noteWins.size);
   const win = new BrowserWindow({
-    x: note.x ?? Math.floor(20 + Math.random() * (sw - 320)),
-    y: note.y ?? Math.floor(20 + Math.random() * (sh - 380)),
-    width:  note.w ?? 300,
-    height: note.h ?? 360,
+    ...placement,
     minWidth: 200, minHeight: 200,
     frame: false, transparent: false,
     resizable: true, skipTaskbar: true,
@@ -281,17 +283,9 @@ function openNoteWindow(note) {
     if (desktopLayer && !getNoteById(note.id)?.pinned) desktopLayer.ensure(win);
   });
 
-  win.on('moved', () => {
-    const [nx, ny] = win.getPosition();
-    const n = getNoteById(note.id);
-    if (n) changeNote(note.id, { x: nx, y: ny });
-  });
-
-  win.on('resized', () => {
-    const [nw, nh] = win.getSize();
-    const n = getNoteById(note.id);
-    if (n) changeNote(note.id, { w: nw, h: nh });
-  });
+  // Only real user moves/resizes update saved geometry. Display reflow is
+  // session-only, so unplugging a monitor does not destroy the saved layout.
+  noteGeometry.track(win, note.id);
 
   // Native close (Alt+F4, window manager, etc.) must take the same
   // flush-and-persist path as the editor's red Close button.
@@ -390,6 +384,13 @@ function createNewNote() {
 
 // ── App Ready ─────────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
+  noteGeometry = new NoteGeometry({
+    screen,
+    getNote: getNoteById,
+    persist: changeNote,
+    warn: (message) => console.warn("[Ray's Note] Geometry:", message),
+  });
+  noteGeometry.start();
   try {
     const adapter = createWindowsDesktopAdapter();
     desktopLayer = new DesktopLayer({
