@@ -7,17 +7,51 @@ const read = name => fs.readFileSync(path.join(__dirname, '..', name), 'utf8');
 const html = () => read('note.html');
 const main = () => read('main.js');
 
+// Match the enclosing <div> rather than relying on an exact optional comment.
+// This remains meaningful after formatters change indentation or comments.
+function noteShellMarkup(page) {
+  const opening = /<div\b[^>]*\bid\s*=\s*(["'])note-shell\1[^>]*>/i.exec(page);
+  assert.ok(opening, 'note-shell element must exist');
+  const tag = /<\/?div\b[^>]*>/gi;
+  tag.lastIndex = opening.index;
+  let depth = 0;
+  let match;
+  while ((match = tag.exec(page))) {
+    depth += /^<\s*\/div\b/i.test(match[0]) ? -1 : 1;
+    assert.ok(depth >= 0, 'note-shell element nesting must remain valid');
+    if (depth === 0) return page.slice(opening.index, tag.lastIndex);
+  }
+  assert.fail('note-shell closing div was not found');
+}
+
+function declaredBackground(page, selector) {
+  const css = selector === 'body'
+    ? /(?:^|\})\s*body\s*\{([^}]*)\}/m
+    : /#note-shell\s*\{([^}]*)\}/m;
+  const match = css.exec(page);
+  assert.ok(match, `CSS rule missing: ${selector}`);
+  const background = /(?:^|;)\s*background\s*:\s*var\(\s*--nc\s*,\s*(#[0-9a-f]{6})\s*\)/i.exec(match[1]);
+  assert.ok(background, `expected note color CSS variable in ${selector}`);
+  return background[1].toLowerCase();
+}
+
 test('one cohesive note-shell uses a subtle 8px radius rather than 16px', () => {
   const page = html();
   assert.match(page, /--corner-radius:\s*8px/);
   assert.doesNotMatch(page, /--corner-radius:\s*16px/);
   assert.match(page, /#note-shell\s*\{[\s\S]*?border-radius:\s*var\(--corner-radius\)/);
   assert.match(page, /#note-shell\s*\{[\s\S]*?overflow:\s*hidden/);
-  assert.ok(page.indexOf('<div id="note-shell">') < page.indexOf('id="titlebar"'));
-  assert.ok(page.indexOf('id="statusbar"') < page.indexOf('</div><!-- #note-shell -->'));
+  const shell = noteShellMarkup(page);
+  assert.match(shell, /id=["']titlebar["']/i);
+  assert.match(shell, /id=["']statusbar["']/i);
+  const titlePos = shell.search(/id\s*=\s*['"]titlebar['"]/i);
+  const statusPos = shell.search(/id\s*=\s*['"]statusbar['"]/i);
+  assert.ok(titlePos >= 0 && statusPos > titlePos,
+    'title bar must precede status bar inside note-shell');
 });
-test('no custom native window region interferes with Windows resize hit testing', () => {
+test('Electron setShape is absent; native rounding can release clipping during resize', () => {
   assert.doesNotMatch(main(), /setShape\(|installRoundedShape|note-window-shape/);
+  assert.match(main(), /installNoteCorners/);
   assert.doesNotMatch(read('package.json'), /note-window-shape/);
   assert.equal(fs.existsSync(path.join(__dirname,'../src/windows/note-window-shape.js')),false);
 });
@@ -30,8 +64,8 @@ test('native rounded corners are requested with regular resizable thick window f
 });
 test('body and note shell backgrounds match for all seven note colors', () => {
   const page=html(), renderer=read('src/renderer/note.js');
-  assert.match(page,/body\s*\{[\s\S]*?background:\s*var\(--nc, #FFF9C4\)/);
-  assert.match(page,/#note-shell\s*\{[\s\S]*?background:\s*var\(--nc, #FFF9C4\)/);
+  assert.equal(declaredBackground(page, 'body'), '#fff9c4');
+  assert.equal(declaredBackground(page, '#note-shell'), '#fff9c4');
   assert.equal((renderer.match(/document\.body\.style\.background = noteColor/g)||[]).length,2);
   assert.equal((renderer.match(/getElementById\('note-shell'\)\.style\.background = noteColor/g)||[]).length,2);
   assert.equal((page.match(/class="cd"/g)||[]).length,7);
@@ -65,7 +99,7 @@ test('the enlarged minimum is not written into the note JSON model', () => {
   assert.match(model,/200, 16384/);
   assert.doesNotMatch(main(),/note\.w\s*=\s*280/);
 });
-test('no untested native shape hooks, timer, or resize listener are introduced', () => {
+test('no timer polling or old Electron region hooks are introduced', () => {
   const src=main();
   assert.doesNotMatch(src,/setShape\(|win\.on\('resize',\s*scheduleApply\)/);
   assert.doesNotMatch(src,/setInterval\(/);

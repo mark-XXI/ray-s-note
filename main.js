@@ -12,6 +12,7 @@ const { createWindowsDesktopAdapter } = require('./src/windows/win32-desktop');
 const { NoteLifecycle } = require('./src/windows/note-lifecycle');
 const { NotePinning } = require('./src/windows/note-pinning');
 const { NoteGeometry } = require('./src/windows/note-geometry');
+const { createCornerAdapter, installNoteCorners } = require('./src/windows/note-corners');
 const { isTrustedFrame, isAuthorizedNoteUpdate } = require('./src/security/ipc-policy');
 
 // Explicitly opt into isolated local data for development testing.
@@ -36,6 +37,7 @@ let storageErrorReported = false;
 let desktopLayer = null;
 let desktopShellMessage = 0;
 let noteGeometry = null;
+let cornerAdapter = null;
 
 function applyNativePinState(win, pinned) {
   if (pinned) {
@@ -265,6 +267,11 @@ function openNoteWindow(note) {
     show: false,
   });
 
+  // Native rounding is independent of editor, pin and desktop-layer ownership.
+  const noteCorners = installNoteCorners(win, {
+    adapter: cornerAdapter,
+    warn: (error) => console.warn("[Ray's Note] Corner fallback:", error.message || String(error)),
+  });
   win._rayReady = false;
   lockRendererWindow(win);
   win.loadFile('note.html');
@@ -275,6 +282,7 @@ function openNoteWindow(note) {
     win._rayReady = true;
     if (!note.pinned && desktopLayer) desktopLayer.attach(win);
     installDesktopShellHook(win);
+    noteCorners.apply?.();
     win.show();
     refreshDash();
   });
@@ -391,6 +399,11 @@ app.whenReady().then(() => {
     warn: (message) => console.warn("[Ray's Note] Geometry:", message),
   });
   noteGeometry.start();
+  if (process.platform === 'win32' && process.arch === 'x64' &&
+      process.env.RAYS_NOTE_DISABLE_NATIVE_CORNERS !== '1') {
+    try { cornerAdapter = createCornerAdapter(); }
+    catch (error) { console.warn("[Ray's Note] Native corners unavailable:", error.message); }
+  }
   try {
     const adapter = createWindowsDesktopAdapter();
     desktopLayer = new DesktopLayer({
