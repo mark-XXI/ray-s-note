@@ -29,6 +29,10 @@ const noteWins = new Map();
 let dashWin = null;
 let tray = null;
 let storageErrorReported = false;
+// Session-only setting: use a user-controllable, event-driven alternative to
+// the old 150ms minimize polling loop. Notes' persisted visibility is unchanged.
+let restoreOnShowDesktop = true;
+const desktopWatchers = new Map();
 
 function getNoteById(id) { return allNotes.find(n => n.id === id); }
 
@@ -232,8 +236,13 @@ function openNoteWindow(note) {
     win.webContents.send('init', getNoteById(note.id));
     win._rayReady = true;
     win.show();
-    // Desktop behavior is revised in Batch 09, not this lifecycle batch.
-    startDesktopWatcher(win);
+    const watcher = startDesktopWatcher(win, {
+      enabled: restoreOnShowDesktop,
+      shouldRestore: () => !shutdownApproved &&
+        !!getNoteById(note.id) && !getNoteById(note.id).hidden,
+      onError: (error) => console.warn("[Ray's Note] Desktop recovery failed:", error),
+    });
+    desktopWatchers.set(note.id, watcher);
     refreshDash();
   });
 
@@ -258,6 +267,9 @@ function openNoteWindow(note) {
   });
 
   win.on('closed', () => {
+    const watcher = desktopWatchers.get(note.id);
+    if (watcher) watcher.stop();
+    desktopWatchers.delete(note.id);
     if (noteWins.get(note.id) === win) noteWins.delete(note.id);
     refreshDash();
   });
@@ -302,6 +314,34 @@ function sendDashNotes() {
 
 function refreshDash() { sendDashNotes(); }
 
+// A deterministic manual recovery path if Explorer keeps a note behind the
+// desktop after Win+D. Only reveal notes that were already marked visible.
+// Never bring intentionally hidden notes back or mutate the notes JSON file.
+function revealVisibleNotes() {
+  for (const note of allNotes) {
+    if (note.hidden) continue;
+    const win = noteWins.get(note.id);
+    if (!win || win.isDestroyed()) {
+      openNoteWindow(note);
+      continue;
+    }
+    try {
+      if (win.isMinimized()) win.restore();
+      if (!win.isVisible()) win.showInactive();
+      win.moveTop(); // Z-order only: never explicitly activate the editor.
+    } catch (error) {
+      console.warn("[Ray's Note] Could not reveal note:", note.id, error);
+    }
+  }
+}
+
+function setDesktopRecovery(enabled) {
+  restoreOnShowDesktop = enabled === true;
+  for (const watcher of desktopWatchers.values()) {
+    watcher.setEnabled(restoreOnShowDesktop);
+  }
+}
+
 // ── Tray ──────────────────────────────────────────────────────────────────────
 function buildTray() {
   const iconPath = path.join(__dirname, 'note-icon.ico');
@@ -322,6 +362,13 @@ function buildTray() {
     { type: 'separator' },
     { label: 'Hide All Notes', click: () => { void noteLifecycle.hideAll(); } },
     { label: 'Show All Notes', click: () => { void noteLifecycle.showAll(); } },
+    { type: 'separator' },
+    { label: 'Reveal Visible Notes', click: () => revealVisibleNotes() },
+    {
+      label: 'Recover notes after Win+D', type: 'checkbox',
+      checked: restoreOnShowDesktop,
+      click: (item) => setDesktopRecovery(item.checked),
+    },
     { type: 'separator' },
     { label: "Quit Ray's Note", click: () => { void quitSafely(); } },
   ]));
