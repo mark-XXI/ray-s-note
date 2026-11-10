@@ -6,8 +6,8 @@
 // automatic fallback after changing displays is visual/session-only.
 const DEFAULT_WIDTH = 300;
 const DEFAULT_HEIGHT = 360;
-const MIN_WIDTH = 200;
-const MIN_HEIGHT = 200;
+const MIN_WIDTH = 280;
+const MIN_HEIGHT = 320;
 const HEADER_WIDTH = 96;
 const HEADER_HEIGHT = 24;
 
@@ -56,7 +56,8 @@ function planNoteBounds(note, displays, index = 0) {
     // A bad or temporarily empty display list should never erase note data.
     return { bounds: {
       x: integer(note.x, 40), y: integer(note.y, 40),
-      width: integer(note.w, DEFAULT_WIDTH), height: integer(note.h, DEFAULT_HEIGHT),
+      width: Math.max(MIN_WIDTH, integer(note.w, DEFAULT_WIDTH)),
+      height: Math.max(MIN_HEIGHT, integer(note.h, DEFAULT_HEIGHT)),
     }, adjusted: false, unavailable: true };
   }
   const primary = areas.find(a => a.primary) || areas[0];
@@ -64,8 +65,8 @@ function planNoteBounds(note, displays, index = 0) {
   const desired = {
     x: integer(note.x, primary.x + 40 + cascade),
     y: integer(note.y, primary.y + 40 + cascade),
-    width: integer(note.w, DEFAULT_WIDTH),
-    height: integer(note.h, DEFAULT_HEIGHT),
+    width: Math.max(MIN_WIDTH, integer(note.w, DEFAULT_WIDTH)),
+    height: Math.max(MIN_HEIGHT, integer(note.h, DEFAULT_HEIGHT)),
   };
 
   // Keep existing cross-display positions if their titlebar is accessible on
@@ -78,7 +79,7 @@ function planNoteBounds(note, displays, index = 0) {
   const accessible = areas.some(a => intersection(titlebar, a) >=
     Math.min(HEADER_WIDTH, desired.width) * Math.min(HEADER_HEIGHT, desired.height));
   const fitsSize = areas.some(a => desired.width <= a.width && desired.height <= a.height);
-  if (accessible && fitsSize) return { bounds: desired, adjusted: false, unavailable: false };
+  if (accessible && fitsSize) return { bounds: desired, adjusted: note.w < MIN_WIDTH || note.h < MIN_HEIGHT, unavailable: false };
 
   // A negative virtual desktop coordinate is not inherently offscreen.
   // Pick the screen with greatest overlap; otherwise the nearest screen.
@@ -94,7 +95,7 @@ function planNoteBounds(note, displays, index = 0) {
     y: clamp(desired.y, area.y, area.y + area.height - height),
     width, height,
   };
-  return { bounds, adjusted: !sameBounds(bounds, desired), unavailable: false };
+  return { bounds, adjusted: !sameBounds(bounds, desired) || note.w < MIN_WIDTH || note.h < MIN_HEIGHT, unavailable: false };
 }
 
 class NoteGeometry {

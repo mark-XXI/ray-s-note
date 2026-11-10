@@ -67,7 +67,7 @@ test('missing display relocates offscreen note within primary work area', () => 
 });
 
 test('notes keep crossing a display seam when their titlebar is accessible', () => {
-  const result = planNoteBounds(note({ x: -120, y: 50, w: 360, h: 300 }), desktop);
+  const result = planNoteBounds(note({ x: -120, y: 50, w: 360, h: 320 }), desktop);
   assert.equal(result.adjusted, false);
   assert.equal(result.bounds.x, -120);
 });
@@ -103,7 +103,7 @@ test('screen controller explicitly selects primary display even when getAllDispl
 test('DIP placement is independent of the monitor pixel scale factor', () => {
   const d = { ...primary, scaleFactor: 2.5 };
   assert.deepEqual(planNoteBounds(note({ x: 250, y: 90, w: 360, h: 300 }), [d]).bounds,
-    { x: 250, y: 90, width: 360, height: 300 });
+    { x: 250, y: 90, width: 360, height: 320 });
 });
 
 test('unplug reflows visually without overwriting original saved coordinates', () => {
@@ -183,4 +183,21 @@ test('desktop owner integration and editor IPC remain unchanged', () => {
   assert.match(main, /noteGeometry\.track\(win, note\.id\)/);
   assert.match(main, /noteGeometry\.start\(\)/);
   assert.doesNotMatch(main, /getPrimaryDisplay\(\)\.workAreaSize/);
+});
+
+
+test('legacy 200x200 note is displayed at the new minimum without modifying saved data', () => {
+  const stored=note({ x: 90, y: 50, w: 200, h: 200 });
+  const placed=planNoteBounds(stored, [primary]);
+  assert.deepEqual(placed.bounds, { x: 90, y: 50, width: 280, height: 320 });
+  assert.equal(placed.adjusted, true);
+  assert.equal(stored.w, 200);
+  assert.equal(stored.h, 200);
+});
+
+test('minimum constraints are applied on startup even if display enumeration is unavailable', () => {
+  const placed=planNoteBounds(note({x:30,y:40,w:200,h:200}), []);
+  assert.equal(placed.unavailable,true);
+  assert.equal(placed.bounds.width,280);
+  assert.equal(placed.bounds.height,320);
 });

@@ -1,334 +1,510 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'none'; connect-src 'none'; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
-<title>Ray's Note</title>
-<style>
-/* ── Reset ── */
-* { box-sizing: border-box; margin: 0; padding: 0; }
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'none'; connect-src 'none'; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <title>Ray's Note</title>
+    <style>
+      /* ── Reset ── */
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
 
-body {
-  font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
-  background: transparent;
-  color: #2c2c2c;
-  height: 100vh;
-  overflow: hidden;
-  user-select: none;
-}
+      body {
+        font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+        background: var(--nc, #fff9c4);
+        color: #2c2c2c;
+        height: 100vh;
+        overflow: hidden;
+        user-select: none;
+      }
 
-/* Entire sticky note is one surface: corners, header, editor and footer
-   are clipped together rather than independently rounded panels. */
-#note-shell {
-  --corner-radius: 16px;
-  width: 100%;
-  height: 100vh;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  border-radius: var(--corner-radius);
-  overflow: hidden;
-  isolation: isolate;
-  background: var(--nc, #FFF9C4);
-  box-shadow: inset 0 0 0 1px rgba(34, 33, 30, 0.12);
-}
+      /* Let the operating system own the physical window bounds. CSS clips
+   only the note's inner layers; no custom native region is applied. */
+      #note-shell {
+        --corner-radius: 8px;
+        width: 100%;
+        height: 100vh;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        border-radius: var(--corner-radius);
+        overflow: hidden;
+        isolation: isolate;
+        background: var(--nc, #fff9c4);
+        box-shadow: inset 0 0 0 1px rgba(34, 33, 30, 0.12);
+      }
 
+      /* ── Title Bar (drag area) ── */
+      #titlebar {
+        -webkit-app-region: drag;
+        background: rgba(0, 0, 0, 0.075);
+        padding: 8px 10px 7px;
+        min-height: 34px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-shrink: 0;
+      }
 
-/* ── Title Bar (drag area) ── */
-#titlebar {
-  -webkit-app-region: drag;
-  background: rgba(0,0,0,0.075);
-  padding: 8px 10px 7px;
-  min-height: 34px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-shrink: 0;
-}
+      #win-btns {
+        -webkit-app-region: no-drag;
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
 
-#win-btns {
-  -webkit-app-region: no-drag;
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
+      .wb {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        border: none;
+        cursor: pointer;
+        font-size: 10px;
+        line-height: 16px;
+        text-align: center;
+        color: transparent;
+        transition:
+          color 0.15s,
+          transform 0.12s,
+          box-shadow 0.15s;
+        flex-shrink: 0;
+        padding: 0;
+      }
+      .wb:hover {
+        color: rgba(0, 0, 0, 0.7);
+        transform: scale(1.1);
+      }
+      .wb:focus-visible {
+        outline: 2px solid rgba(34, 34, 34, 0.72);
+        outline-offset: 2px;
+      }
+      #wb-close {
+        background: #ff5f57;
+      }
+      #wb-hide {
+        background: #febc2e;
+      }
+      #wb-new {
+        background: #28c840;
+      }
+      #wb-dash {
+        background: #5ac8fa;
+        font-size: 9px;
+        border-radius: 4px;
+        width: 20px;
+      }
+      /* Match the other hover-revealed title controls: monochrome, no emoji or gold. */
+      #wb-pin {
+        width: 16px;
+        height: 16px;
+        line-height: 16px;
+        border-radius: 50%;
+        background: rgba(0, 0, 0, 0.15);
+        color: transparent;
+      }
+      #wb-pin svg {
+        width: 11px;
+        height: 11px;
+        display: block;
+        stroke: currentColor;
+        stroke-width: 2;
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        pointer-events: none;
+      }
+      #wb-pin:hover {
+        background: rgba(0, 0, 0, 0.23);
+        color: rgba(0, 0, 0, 0.7);
+      }
+      #wb-pin.pinned {
+        background: rgba(0, 0, 0, 0.3);
+        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.16);
+      }
+      #wb-pin.pinned:hover,
+      #wb-pin:focus-visible {
+        color: rgba(0, 0, 0, 0.78);
+      }
+      #wb-pin:focus-visible {
+        outline: 2px solid #333;
+        outline-offset: 2px;
+      }
+      #wb-pin:disabled {
+        cursor: wait;
+        opacity: 0.65;
+      }
 
-.wb {
-  width: 16px; height: 16px;
-  border-radius: 50%;
-  border: none;
-  cursor: pointer;
-  font-size: 10px;
-  line-height: 16px;
-  text-align: center;
-  color: transparent;
-  transition: color 0.15s, transform 0.12s, box-shadow 0.15s;
-  flex-shrink: 0;
-  padding: 0;
-}
-.wb:hover { color: rgba(0,0,0,0.7); transform: scale(1.10); }
-.wb:focus-visible { outline: 2px solid rgba(34,34,34,0.72); outline-offset: 2px; }
-#wb-close { background: #ff5f57; }
-#wb-hide  { background: #febc2e; }
-#wb-new   { background: #28c840; }
-#wb-dash  { background: #5ac8fa; font-size: 9px; border-radius: 4px; width: 20px; }
-/* Match the other hover-revealed title controls: monochrome, no emoji or gold. */
-#wb-pin {
-  width: 16px; height: 16px; line-height: 16px;
-  border-radius: 50%; background: rgba(0,0,0,0.15);
-  color: transparent;
-}
-#wb-pin svg {
-  width: 11px; height: 11px; display: block;
-  stroke: currentColor; stroke-width: 2; fill: none;
-  stroke-linecap: round; stroke-linejoin: round;
-  pointer-events: none;
-}
-#wb-pin:hover { background: rgba(0,0,0,0.23); color: rgba(0,0,0,0.7); }
-#wb-pin.pinned {
-  background: rgba(0,0,0,0.30);
-  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.16);
-}
-#wb-pin.pinned:hover, #wb-pin:focus-visible { color: rgba(0,0,0,0.78); }
-#wb-pin:focus-visible { outline: 2px solid #333; outline-offset: 2px; }
-#wb-pin:disabled { cursor: wait; opacity: 0.65; }
+      /* ── Color Strip ── */
+      #color-row {
+        -webkit-app-region: no-drag;
+        padding: 7px 12px;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        background: rgba(255, 255, 255, 0.1);
+        border-bottom: 1px solid rgba(35, 30, 26, 0.1);
+        flex-shrink: 0;
+      }
 
-/* ── Color Strip ── */
-#color-row {
-  -webkit-app-region: no-drag;
-  padding: 7px 12px;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  background: rgba(255,255,255,0.10);
-  border-bottom: 1px solid rgba(35,30,26,0.10);
-  flex-shrink: 0;
-}
+      .cd {
+        width: 15px;
+        height: 15px;
+        border-radius: 50%;
+        border: 1px solid rgba(0, 0, 0, 0.2);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.32);
+        cursor: pointer;
+        transition: transform 0.12s;
+        flex-shrink: 0;
+      }
+      .cd:hover {
+        transform: scale(1.25);
+      }
+      .cd.on {
+        outline: 2px solid rgba(25, 25, 25, 0.6);
+        outline-offset: 2px;
+      }
+      .cd:focus-visible {
+        outline: 2px solid rgba(25, 25, 25, 0.7);
+        outline-offset: 3px;
+      }
 
-.cd {
-  width: 15px; height: 15px;
-  border-radius: 50%;
-  border: 1px solid rgba(0,0,0,0.2);
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.32);
-  cursor: pointer;
-  transition: transform 0.12s;
-  flex-shrink: 0;
-}
-.cd:hover { transform: scale(1.25); }
-.cd.on    { outline: 2px solid rgba(25,25,25,0.60); outline-offset: 2px; }
-.cd:focus-visible { outline: 2px solid rgba(25,25,25,0.7); outline-offset: 3px; }
+      /* ── Toolbar ── */
+      #toolbar {
+        -webkit-app-region: no-drag;
+        padding: 7px 9px;
+        display: flex;
+        gap: 4px;
+        align-items: center;
+        background: rgba(255, 255, 255, 0.075);
+        border-bottom: 1px solid rgba(35, 30, 26, 0.1);
+        flex-shrink: 0;
+        flex-wrap: wrap;
+      }
 
-/* ── Toolbar ── */
-#toolbar {
-  -webkit-app-region: no-drag;
-  padding: 7px 9px;
-  display: flex;
-  gap: 4px;
-  align-items: center;
-  background: rgba(255,255,255,0.075);
-  border-bottom: 1px solid rgba(35,30,26,0.10);
-  flex-shrink: 0;
-  flex-wrap: wrap;
-}
+      .tb {
+        background: rgba(0, 0, 0, 0.08);
+        border: none;
+        border-radius: 6px;
+        padding: 3px 6px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 600;
+        color: #333;
+        transition: background 0.12s;
+        min-width: 25px;
+        height: 25px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+        user-select: none;
+      }
+      .tb:hover {
+        background: rgba(0, 0, 0, 0.18);
+      }
+      .tb.on {
+        background: rgba(0, 0, 0, 0.22);
+      }
+      .tb:focus-visible {
+        outline: 2px solid rgba(34, 34, 34, 0.72);
+        outline-offset: 1px;
+      }
 
-.tb {
-  background: rgba(0,0,0,0.08);
-  border: none;
-  border-radius: 6px;
-  padding: 3px 6px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-  color: #333;
-  transition: background 0.12s;
-  min-width: 25px;
-  height: 25px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
-  user-select: none;
-}
-.tb:hover { background: rgba(0,0,0,0.18); }
-.tb.on    { background: rgba(0,0,0,0.22); }
-.tb:focus-visible { outline: 2px solid rgba(34,34,34,0.72); outline-offset: 1px; }
+      .sep {
+        width: 1px;
+        height: 16px;
+        background: rgba(0, 0, 0, 0.15);
+        margin: 0 2px;
+        flex-shrink: 0;
+      }
 
-.sep { width: 1px; height: 16px; background: rgba(0,0,0,0.15); margin: 0 2px; flex-shrink: 0; }
+      #sz-lbl {
+        font-size: 11px;
+        color: rgba(0, 0, 0, 0.5);
+        min-width: 20px;
+        text-align: center;
+      }
 
-#sz-lbl { font-size: 11px; color: rgba(0,0,0,0.5); min-width: 20px; text-align: center; }
+      /* ── Editor ── */
+      #editor {
+        flex: 1;
+        padding: 13px 15px 16px;
+        min-height: 0;
+        outline: none;
+        font-size: 15px;
+        line-height: 1.75;
+        color: #2c2c2c;
+        overflow-y: auto;
+        user-select: text;
+        -webkit-app-region: no-drag;
+        word-break: break-word;
+        cursor: text;
+        background: transparent;
+        width: 100%;
+        font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+      }
+      #editor:empty::before {
+        content: attr(data-ph);
+        color: rgba(0, 0, 0, 0.28);
+        pointer-events: none;
+      }
 
-/* ── Editor ── */
-#editor {
-  flex: 1;
-  padding: 13px 15px 16px;
-  min-height: 0;
-  outline: none;
-  font-size: 15px;
-  line-height: 1.75;
-  color: #2c2c2c;
-  overflow-y: auto;
-  user-select: text;
-  -webkit-app-region: no-drag;
-  word-break: break-word;
-  cursor: text;
-  background: transparent;
-  width: 100%;
-  font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
-}
-#editor:empty::before {
-  content: attr(data-ph);
-  color: rgba(0,0,0,0.28);
-  pointer-events: none;
-}
+      /* Bullets must stay visible and aligned in both RTL and LTR notes. */
+      #editor ul,
+      #editor ol {
+        margin: 4px 0;
+        padding-inline-start: 27px;
+        list-style-position: outside;
+      }
+      #editor ul {
+        list-style-type: disc;
+      }
+      #editor li {
+        padding-inline-start: 2px;
+        overflow-wrap: anywhere;
+      }
 
-/* Bullets must stay visible and aligned in both RTL and LTR notes. */
-#editor ul, #editor ol {
-  margin: 4px 0;
-  padding-inline-start: 27px;
-  list-style-position: outside;
-}
-#editor ul { list-style-type: disc; }
-#editor li { padding-inline-start: 2px; overflow-wrap: anywhere; }
+      /* ── Tasks ── */
+      .task-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin: 4px 0;
+        padding: 3px 0;
+        direction: inherit;
+        min-height: 27px;
+        -webkit-app-region: no-drag;
+      }
+      .task-row input[type="checkbox"] {
+        width: 17px;
+        height: 17px;
+        margin: 4px 0 0;
+        cursor: pointer;
+        flex-shrink: 0;
+        accent-color: #4d8060;
+        -webkit-app-region: no-drag;
+      }
+      .task-text {
+        flex: 1;
+        min-width: 0;
+        min-height: 24px;
+        outline: none;
+        line-height: 1.5;
+        text-align: start;
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+        user-select: text;
+        -webkit-app-region: no-drag;
+      }
+      .task-text:empty::before {
+        content: attr(data-placeholder);
+        color: rgba(0, 0, 0, 0.35);
+        pointer-events: none;
+      }
+      .task-text:focus-visible {
+        outline: 1px dotted rgba(0, 0, 0, 0.35);
+        outline-offset: 2px;
+      }
+      .task-text.done {
+        text-decoration: line-through;
+        color: rgba(0, 0, 0, 0.42);
+      }
 
-/* ── Tasks ── */
-.task-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin: 4px 0;
-  padding: 3px 0;
-  direction: inherit;
-  min-height: 27px;
-  -webkit-app-region: no-drag;
-}
-.task-row input[type=checkbox] {
-  width: 17px;
-  height: 17px;
-  margin: 4px 0 0;
-  cursor: pointer;
-  flex-shrink: 0;
-  accent-color: #4d8060;
-  -webkit-app-region: no-drag;
-}
-.task-text {
-  flex: 1;
-  min-width: 0;
-  min-height: 24px;
-  outline: none;
-  line-height: 1.5;
-  text-align: start;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-  user-select: text;
-  -webkit-app-region: no-drag;
-}
-.task-text:empty::before {
-  content: attr(data-placeholder);
-  color: rgba(0,0,0,0.35);
-  pointer-events: none;
-}
-.task-text:focus-visible { outline: 1px dotted rgba(0,0,0,0.35); outline-offset: 2px; }
-.task-text.done {
-  text-decoration: line-through;
-  color: rgba(0,0,0,0.42);
-}
+      /* ── Status bar ── */
+      #statusbar {
+        -webkit-app-region: no-drag;
+        padding: 7px 12px 8px;
+        min-height: 28px;
+        font-size: 10px;
+        color: rgba(0, 0, 0, 0.35);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: rgba(255, 255, 255, 0.085);
+        border-top: 1px solid rgba(35, 30, 26, 0.09);
+        flex-shrink: 0;
+        gap: 6px;
+      }
+      #save-dot {
+        font-size: 13px;
+        line-height: 1;
+      }
+      #save-lbl {
+        margin-left: auto;
+      }
 
-/* ── Status bar ── */
-#statusbar {
-  -webkit-app-region: no-drag;
-  padding: 7px 12px 8px;
-  min-height: 28px;
-  font-size: 10px;
-  color: rgba(0,0,0,0.35);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: rgba(255,255,255,0.085);
-  border-top: 1px solid rgba(35,30,26,0.09);
-  flex-shrink: 0;
-  gap: 6px;
-}
-#save-dot { font-size: 13px; line-height: 1; }
-#save-lbl { margin-left: auto; }
+      /* ── Scrollbar ── */
+      ::-webkit-scrollbar {
+        width: 4px;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: rgba(0, 0, 0, 0.18);
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="note-shell">
+      <!-- Title Bar -->
+      <div id="titlebar">
+        <div id="win-btns">
+          <button class="wb" id="wb-close" title="Close">×</button>
+          <button class="wb" id="wb-hide" title="Hide">−</button>
+          <button class="wb" id="wb-new" title="New Note">+</button>
+          <button class="wb" id="wb-dash" title="Dashboard">≡</button>
+          <button
+            class="wb"
+            id="wb-pin"
+            type="button"
+            aria-pressed="false"
+            aria-label="Pin note on top"
+            title="Pin note on top"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path
+                d="M16 9V4l1-1V2H7v1l1 1v5a4 4 0 0 1-4 4v2h16v-2a4 4 0 0 1-4-4Z"
+              />
+              <path d="M12 15v7" />
+            </svg>
+          </button>
+          <button
+            class="wb"
+            id="wb-toolbar"
+            title="Toggle Toolbar"
+            style="
+              background: #a0a0a0;
+              border-radius: 4px;
+              width: 20px;
+              font-size: 9px;
+            "
+          >
+            ▤
+          </button>
+        </div>
+        <span
+          style="
+            font-size: 11px;
+            color: rgba(0, 0, 0, 0.4);
+            -webkit-app-region: drag;
+            flex: 1;
+            text-align: center;
+          "
+          >Ray's Note</span
+        >
+      </div>
 
-/* ── Scrollbar ── */
-::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.18); border-radius: 4px; }
-</style>
-</head>
-<body>
-<div id="note-shell">
+      <!-- Color Strip (separated from titlebar) -->
+      <div id="color-row">
+        <span
+          style="font-size: 10px; color: rgba(0, 0, 0, 0.4); margin-left: 2px"
+          >Color:</span
+        >
+        <div
+          class="cd"
+          style="background: #fff9c4"
+          data-c="#FFF9C4"
+          title="Yellow"
+        ></div>
+        <div
+          class="cd"
+          style="background: #c8f7c5"
+          data-c="#C8F7C5"
+          title="Green"
+        ></div>
+        <div
+          class="cd"
+          style="background: #c5e8ff"
+          data-c="#C5E8FF"
+          title="Blue"
+        ></div>
+        <div
+          class="cd"
+          style="background: #ffc5c5"
+          data-c="#FFC5C5"
+          title="Pink"
+        ></div>
+        <div
+          class="cd"
+          style="background: #e8c5ff"
+          data-c="#E8C5FF"
+          title="Purple"
+        ></div>
+        <div
+          class="cd"
+          style="background: #ffe0c5"
+          data-c="#FFE0C5"
+          title="Orange"
+        ></div>
+        <div
+          class="cd"
+          style="background: #f0f0f0"
+          data-c="#F0F0F0"
+          title="White"
+        ></div>
+      </div>
 
-<!-- Title Bar -->
-<div id="titlebar">
-  <div id="win-btns">
-    <button class="wb" id="wb-close"  title="Close">×</button>
-    <button class="wb" id="wb-hide"    title="Hide">−</button>
-    <button class="wb" id="wb-new"      title="New Note">+</button>
-    <button class="wb" id="wb-dash"    title="Dashboard">≡</button>
-    <button class="wb" id="wb-pin" type="button" aria-pressed="false"
-            aria-label="Pin note on top" title="Pin note on top"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M16 9V4l1-1V2H7v1l1 1v5a4 4 0 0 1-4 4v2h16v-2a4 4 0 0 1-4-4Z"/><path d="M12 15v7"/></svg></button>
-    <button class="wb" id="wb-toolbar"  title="Toggle Toolbar" style="background:#a0a0a0; border-radius:4px; width:20px; font-size:9px;">▤</button>
-  </div>
-  <span style="font-size:11px; color:rgba(0,0,0,0.4); -webkit-app-region:drag; flex:1; text-align:center;">Ray's Note</span>
-</div>
+      <!-- Toolbar -->
+      <div id="toolbar">
+        <!-- Text format -->
+        <button class="tb" data-format="bold" title="Bold"><b>B</b></button>
+        <button class="tb" data-format="italic" title="Italic"><i>I</i></button>
+        <button class="tb" data-format="underline" title="Underline">
+          <u>U</u>
+        </button>
+        <div class="sep"></div>
+        <!-- Alignment -->
+        <button class="tb" data-align="left" title="Align Left">◀≡</button>
+        <button class="tb" data-align="center" title="Center">≡</button>
+        <button class="tb" data-align="right" title="Align Right">≡▶</button>
+        <div class="sep"></div>
+        <!-- Direction -->
+        <button class="tb" data-direction="ltr" title="Left to Right (English)">
+          LTR
+        </button>
+        <button class="tb" data-direction="rtl" title="Right to Left (Arabic)">
+          RTL
+        </button>
+        <div class="sep"></div>
+        <!-- Insert -->
+        <button class="tb" data-command="bullet" title="Bullet Point">•</button>
+        <button class="tb" data-command="task" title="Task / Checkbox">
+          ☐
+        </button>
+        <div class="sep"></div>
+        <!-- Font size -->
+        <button class="tb" data-font-delta="-1" title="Decrease Font">
+          A-
+        </button>
+        <span id="sz-lbl">15</span>
+        <button class="tb" data-font-delta="1" title="Increase Font">A+</button>
+      </div>
 
-<!-- Color Strip (separated from titlebar) -->
-<div id="color-row">
-  <span style="font-size:10px; color:rgba(0,0,0,0.4); margin-left:2px;">Color:</span>
-  <div class="cd" style="background:#FFF9C4" data-c="#FFF9C4"  title="Yellow"></div>
-  <div class="cd" style="background:#C8F7C5" data-c="#C8F7C5"  title="Green"></div>
-  <div class="cd" style="background:#C5E8FF" data-c="#C5E8FF"  title="Blue"></div>
-  <div class="cd" style="background:#FFC5C5" data-c="#FFC5C5"  title="Pink"></div>
-  <div class="cd" style="background:#E8C5FF" data-c="#E8C5FF"  title="Purple"></div>
-  <div class="cd" style="background:#FFE0C5" data-c="#FFE0C5"  title="Orange"></div>
-  <div class="cd" style="background:#F0F0F0" data-c="#F0F0F0"  title="White"></div>
-</div>
+      <!-- Editor -->
+      <div
+        id="editor"
+        contenteditable="true"
+        spellcheck="false"
+        data-ph="Start typing..."
+      ></div>
 
-<!-- Toolbar -->
-<div id="toolbar">
-  <!-- Text format -->
-  <button class="tb" data-format="bold"      title="Bold"><b>B</b></button>
-  <button class="tb" data-format="italic"    title="Italic"><i>I</i></button>
-  <button class="tb" data-format="underline" title="Underline"><u>U</u></button>
-  <div class="sep"></div>
-  <!-- Alignment -->
-  <button class="tb" data-align="left"   title="Align Left">◀≡</button>
-  <button class="tb" data-align="center" title="Center">≡</button>
-  <button class="tb" data-align="right"  title="Align Right">≡▶</button>
-  <div class="sep"></div>
-  <!-- Direction -->
-  <button class="tb" data-direction="ltr" title="Left to Right (English)">LTR</button>
-  <button class="tb" data-direction="rtl" title="Right to Left (Arabic)">RTL</button>
-  <div class="sep"></div>
-  <!-- Insert -->
-  <button class="tb" data-command="bullet" title="Bullet Point">•</button>
-  <button class="tb" data-command="task"   title="Task / Checkbox">☐</button>
-  <div class="sep"></div>
-  <!-- Font size -->
-  <button class="tb" data-font-delta="-1" title="Decrease Font">A-</button>
-  <span id="sz-lbl">15</span>
-  <button class="tb" data-font-delta="1"  title="Increase Font">A+</button>
-</div>
+      <!-- Status Bar -->
+      <div id="statusbar">
+        <span id="wc">0 words</span>
+        <span id="save-dot" title="Saved">●</span>
+        <span id="save-lbl">Saved</span>
+      </div>
+    </div>
+    <!-- #note-shell -->
 
-<!-- Editor -->
-<div id="editor"
-     contenteditable="true"
-     spellcheck="false"
-     data-ph="Start typing...">
-</div>
-
-<!-- Status Bar -->
-<div id="statusbar">
-  <span id="wc">0 words</span>
-  <span id="save-dot" title="Saved">●</span>
-  <span id="save-lbl">Saved</span>
-</div>
-</div><!-- #note-shell -->
-
-<script src="src/renderer/note-html.js"></script>
-<script src="src/renderer/note-tasks.js"></script>
-<script src="src/renderer/note-bullets.js"></script>
-<script src="src/renderer/note.js"></script>
-</body>
+    <script src="src/renderer/note-html.js"></script>
+    <script src="src/renderer/note-tasks.js"></script>
+    <script src="src/renderer/note-bullets.js"></script>
+    <script src="src/renderer/note.js"></script>
+  </body>
 </html>

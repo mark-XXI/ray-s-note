@@ -1,21 +1,20 @@
-# Ray's Note — Batch 12 visual polish
+# Ray's Note — Batch 12 repair: corners, resizing, minimum dimensions
 
-- A single note-shell clips header, color strip, editor, and footer at **16 CSS pixels**.
-- Title bar and toolbar maintain existing actions and reveal-only icon semantics.
-- Color swatches have an accessible selection outline; the palette is unchanged.
-- The note editor remains flexibly sized and scrollable, including at 200x200.
-- On Windows, a guarded **native window shape** removes the pixel corners without enabling Electron transparency (which can break resizing). The region is recalculated after window resizing, is not written to notes.json, and has a fail-open fallback if unsupported.
-- On Windows 11, `roundedCorners: true` also requests the system-native rounded frameless style; the custom region is a separate guard for consistent 16px clipping.
-- The shape is experimental and must be tested on the user's Windows version with the existing WorkerW desktop attachment and native pin/unpin behavior.
+This corrective patch follows the 16px visual redesign. The native `BrowserWindow.setShape()` region caused unreliable hit testing and could leave pixelated/rectangular artifacts as the note was resized.
 
-## GUI tests
+- Remove custom native shape code and its delayed resize callbacks; Windows keeps the complete native resize frame.
+- Keep `frame: false`, `resizable: true`, `thickFrame: true`, `transparent: false`, and request `roundedCorners: true` using Electron's supported window option. Windows 11 22000+ may render system-native rounding; on older Windows it is not available, so we deliberately do not fake a cutout that harms resizing.
+- Reduce note-shell CSS radius to **8px**. Make the opaque `body` background match the colored shell, avoiding colored-square/black-corner artifacts during repaints.
+- Increase minimum usable note size from **200×200 to 280×320 device-independent pixels**. Existing stored geometry remains unchanged until the user deliberately moves/resizes; `NoteGeometry` visually honors the minimum.
+- Do not change the seven-color palette, pin style, text editor, bullets, tasks, dashboard, IPC, Win+D desktop ownership, or saved notes schema.
 
-1. Visual 16px corners visible on the desktop with no rectangular patch behind them.
-2. Resize repeatedly from bottom/right/corners. Controls remain accessible.
-3. Try all seven saved note colors. Each fills the rounded note surface.
-4. Hide and show the toolbar/palette; type and scroll at minimum window size.
-5. Verify grey pin hover state, pinned state, and colored titlebar controls.
-6. Win+D wallpaper layering, pinning, moving, hide/show, and restart remain intact.
-7. Bullet lists, multiline checklist, formatting, RTL and LTR, and autosave remain intact.
+## Manual Windows regression gate
 
-If Windows refuses `setShape`, the app should still render and save normally; report the warning rather than removing a Win32 safety check. Do not commit before GUI verification.
+1. Resize from all four edges and corners; ensure no stuttering or lost hit targets.
+2. Move between the smallest permitted window (280×320) and a larger size; toolbar/editor must remain usable and scroll.
+3. Test yellow, green, blue, pink, purple, orange and white; no mismatched corner patches.
+4. Verify subtle corners with note on wallpaper (Win+D), and pinned above a normal application.
+5. Quit/relaunch; note content, colors, visibility, pin state and dimensions survive.
+6. Verify checklists, Shift+Enter, bullets, text selection, dashboard, tray operations.
+
+**Windows caveat:** The OS-native `roundedCorners` option is supported on Windows 11, not Windows 10. Windows 10 may show a rectangular outer window; this is preferred to breaking resizing or exposing mismatched background colors.
