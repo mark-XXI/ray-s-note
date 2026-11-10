@@ -42,7 +42,7 @@ test('trusted sender requires the actual main frame of the expected window', () 
 });
 
 test('note updates require matching IDs and valid shapes', () => {
-  const good = { id: 12, content: '<b>Hello</b>', color: '#FFF9C4', fontSize: 15, dir: 'rtl' };
+  const good = { id: 12, title: 'Hello', content: '<b>Hello</b>', color: '#FFF9C4', fontSize: 15, dir: 'rtl' };
   assert.equal(isAuthorizedNoteUpdate(12, good), true);
   for (const changed of [
     { ...good, id: 13 }, { ...good, hidden: true }, { ...good, content: 7 },
@@ -58,8 +58,9 @@ test('note preload exposes only the named, limited API', async () => {
   exposed.close(); exposed.hide(); exposed.create(); exposed.dashboard();
   assert.deepEqual(calls.map(call => call.channel),
     ['note-close', 'note-minimize', 'note-new', 'open-dashboard']);
-  await exposed.save({ id: 7, content: 'Test', color: '#FFF9C4', fontSize: 15, dir: 'rtl', hidden: true });
+  await exposed.save({ id: 7, title: 'Test', content: 'Test', color: '#FFF9C4', fontSize: 15, dir: 'rtl', hidden: true });
   assert.equal(calls.at(-1).channel, 'note-update');
+  assert.equal(calls.at(-1).args[0].title, 'Test');
   assert.equal(Object.hasOwn(calls.at(-1).args[0], 'hidden'), false);
   let received;
   exposed.onInit(note => received = note);

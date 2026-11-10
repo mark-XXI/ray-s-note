@@ -32,7 +32,7 @@ function controller(activeInitially = true) {
 }
 
 const original = {
-  id: 1, content: '<b>hello</b>', color: '#FFF9C4', fontSize: 15, dir: 'rtl',
+  id: 1, title: 'Hello', content: '<b>hello</b>', color: '#FFF9C4', fontSize: 15, dir: 'rtl',
   hidden: false, pinned: false, createdAt: '2026-11-10T10:00:00.000Z',
   updatedAt: '2026-11-10T10:00:00.000Z',
 };
@@ -91,7 +91,7 @@ test('unchanged editor values are recognized even if timestamp differs', () => {
 });
 test('every editor-owned field is detected when changed', () => {
   for (const [key, value] of [
-    ['content', 'another'], ['color', '#ABCDEF'], ['fontSize', 16], ['dir', 'ltr'],
+    ['title', 'Another title'], ['content', 'another'], ['color', '#ABCDEF'], ['fontSize', 16], ['dir', 'ltr'],
   ]) {
     const updated = applyNotePatch(original, { [key]: value });
     assert.equal(editorFieldsChanged(original, updated), true, key);

@@ -14,7 +14,16 @@ Native window region APIs are Windows-specific and are not functionally verifiab
 ## Pre-release dashboard redesign — theme support
 
 - The dashboard uses a simplified header, a single compact statistics strip, smaller note cards and clearly separated controls. Existing IDs, note management operations, search, filters, announcements and focus recovery remain intact.
-- Appearance can be set to **System**, **Light** or **Dark** using the dashboard header selector. System follows `prefers-color-scheme` dynamically. A manually selected preference is stored under `rays-note-dashboard-theme-v1` in Chromium localStorage when permitted, with a safe in-memory System fallback if storage is unavailable.
+- The first restyle offered a three-option appearance selector. **This selector has now been replaced by the one-click sun/moon button described below.** The old `rays-note-dashboard-theme-v1` preference is ignored.
 - Appearance changes are dashboard-only: no note data, native desktop integration, pin state, IPC route or persisted note schema changes.
 - The original Batch 16 release configuration is retained as applied and uncommitted; this UI revision must be tested before packaging or final commit.
-- Manual Windows GUI checks: all three theme choices, system-theme switching, reopening the dashboard after a manual theme selection, live stats and card actions, keyboard search/filter/focus, long previews, narrow window, Win+D/pinning, rounded note corners and autosave.
+- Manual Windows GUI checks: first-launch computer theme, sun/moon toggle, Shift+click system reset, system-theme switching, reopening after a manual choice, live stats and card actions, keyboard search/filter/focus, long previews, narrow window, Win+D/pinning, rounded note corners and autosave.
+
+## One-click appearance refinement (Batch 16UI.1)
+
+- Sun/moon control switches between light and dark with one click. It is a real keyboard-accessible button with a state-aware label.
+- On first use, Dashboard follows Windows' system appearance; the older three-option selector preference is intentionally ignored.
+- An explicit choice persists for subsequent Dashboard launches where local storage is supported.
+- Shift+click the sun/moon button to reset the preference and follow Windows again. While following the system, the icon updates if Windows changes appearance.
+- The light palette adds warm lilac and peach header tones, a pale lavender canvas, tinted summary and footer surfaces, and subtle depth. Dark mode stays slate-based.
+- Note colors, storage schema, dashboard actions, and the six pending release files remain unchanged.

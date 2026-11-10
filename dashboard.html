@@ -9,24 +9,34 @@
     /* Dashboard refresh: system/light/dark palettes share the same components. */
     :root {
       color-scheme: light;
-      --bg: #f6f7fb;
-      --surface: #ffffff;
-      --surface2: #f2f3f8;
-      --surface-hover: #fafaff;
-      --text: #24273b;
-      --text2: #6f7589;
-      --border: #e4e6ee;
-      --accent: #635be8;
-      --accent-hover: #5249d7;
-      --accent-soft: #eeedff;
-      --accent-text: #5149bd;
+      /* Light: soft lilac paper, warm peach light and violet ink. */
+      --bg: #f5f0fa;
+      --surface: #fffdfb;
+      --surface2: #f2ecf8;
+      --surface-hover: #fff8fc;
+      --text: #302943;
+      --text2: #746d88;
+      --border: #e7dded;
+      --accent: #7257db;
+      --accent-hover: #6146cb;
+      --accent-soft: #ece4ff;
+      --accent-text: #5842b4;
       --on-accent: #ffffff;
-      --focus: #796ff0;
-      --success: #217755;
-      --warn: #916422;
+      --focus: #8665e8;
+      --success: #28775c;
+      --warn: #96601f;
       --danger: #ae3852;
       --danger-soft: #fff0f1;
-      --shadow: 0 1px 2px rgba(27, 31, 60, 0.04);
+      --shadow: 0 2px 10px rgba(65, 44, 106, 0.055);
+      --page-glow: radial-gradient(ellipse at 95% -12%, rgba(219, 195, 252, 0.37), transparent 57%);
+      --header-glow: linear-gradient(112deg, #eee3fe 0%, #f8edfa 47%, #fff2e7 100%);
+      --stats-glow: linear-gradient(115deg, rgba(239, 231, 255, 0.68), rgba(255, 249, 239, 0.3) 72%);
+      --brand-glow: #fbdacc;
+      --footer-tint: #f4edf8;
+      --stat-total: #6953c6;
+      --stat-open: #28775c;
+      --stat-hidden: #625f84;
+      --stat-pinned: #ad722c;
     }
     @media (prefers-color-scheme: dark) {
       :root:not([data-theme="light"]) {
@@ -49,6 +59,15 @@
         --danger: #ff9daf;
         --danger-soft: #3e2939;
         --shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        --page-glow: none;
+        --header-glow: none;
+        --stats-glow: none;
+        --brand-glow: #343254;
+        --footer-tint: #1b2030;
+        --stat-total: #c2baff;
+        --stat-open: #85ddaf;
+        --stat-hidden: #b9c0d1;
+        --stat-pinned: #f6c983;
       }
     }
     :root[data-theme="dark"] {
@@ -71,6 +90,15 @@
       --danger: #ff9daf;
       --danger-soft: #3e2939;
       --shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+      --page-glow: none;
+      --header-glow: none;
+      --stats-glow: none;
+      --brand-glow: #343254;
+      --footer-tint: #1b2030;
+      --stat-total: #c2baff;
+      --stat-open: #85ddaf;
+      --stat-hidden: #b9c0d1;
+      --stat-pinned: #f6c983;
     }
     * { box-sizing: border-box; }
     html, body { height: 100%; margin: 0; }
@@ -79,6 +107,7 @@
       flex-direction: column;
       overflow: hidden;
       background: var(--bg);
+      background-image: var(--page-glow);
       color: var(--text);
       font: 13px/1.45 'Segoe UI', Tahoma, Arial, sans-serif;
       -webkit-font-smoothing: antialiased;
@@ -103,13 +132,15 @@
       padding: 18px 20px 16px;
       border-bottom: 1px solid var(--border);
       background: var(--surface);
+      background-image: var(--header-glow);
     }
     .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
     .brand-mark {
       width: 35px; height: 35px; flex: none;
       display: grid; place-items: center;
       color: var(--accent-text);
-      background: var(--accent-soft);
+      background: linear-gradient(138deg, var(--accent-soft), var(--brand-glow));
+      border: 1px solid rgba(124, 100, 184, 0.10);
       border-radius: 11px;
     }
     .brand-mark svg { width: 19px; height: 19px; }
@@ -126,18 +157,22 @@
       white-space: nowrap;
     }
     .header-actions { display: flex; align-items: center; gap: 8px; flex: none; }
-    .theme-field { position: relative; flex: none; }
-    #theme-select {
+    /* A single sun/moon button replaces the three-option selector. */
+    #theme-toggle {
+      width: 35px; height: 35px; flex: none;
+      display: inline-grid; place-items: center;
+      padding: 0; border-radius: 10px;
       border: 1px solid var(--border);
-      background: var(--surface2);
-      color: var(--text);
-      border-radius: 9px;
-      padding: 9px 23px 9px 9px;
-      font-size: 11px;
-      min-height: 34px;
-      max-width: 90px;
-      cursor: pointer;
+      background: var(--surface);
+      color: var(--accent-text);
+      box-shadow: var(--shadow);
+      transition: background 140ms ease, border-color 140ms ease;
     }
+    #theme-toggle:hover { background: var(--accent-soft); border-color: var(--accent); }
+    #theme-toggle svg { width: 17px; height: 17px; stroke: currentColor; }
+    #theme-icon-sun { display: none; }
+    :root[data-effective-theme="dark"] #theme-icon-moon { display: none; }
+    :root[data-effective-theme="dark"] #theme-icon-sun { display: block; }
     #btn-new-dash {
       display: inline-flex; align-items: center; justify-content: center;
       gap: 6px; min-height: 35px; padding: 8px 12px;
@@ -156,6 +191,7 @@
       border: 1px solid var(--border);
       border-radius: 12px;
       background: var(--surface);
+      background-image: var(--stats-glow);
       box-shadow: var(--shadow);
       overflow: hidden;
     }
@@ -166,6 +202,10 @@
       letter-spacing: -0.7px; font-variant-numeric: tabular-nums;
       color: var(--text);
     }
+    .stat-box:nth-child(1) .stat-num { color: var(--stat-total); }
+    .stat-box:nth-child(2) .stat-num { color: var(--stat-open); }
+    .stat-box:nth-child(3) .stat-num { color: var(--stat-hidden); }
+    .stat-box:nth-child(4) .stat-num { color: var(--stat-pinned); }
     .stat-lbl {
       margin-top: 3px; font-size: 10px; color: var(--text2);
       white-space: nowrap;
@@ -236,13 +276,23 @@
       border-radius: 3px; border: 1px solid rgba(38, 42, 62, 0.16);
     }
     .note-body { min-width: 0; }
-    .note-preview {
-      margin-bottom: 5px;
+    .note-title {
+      margin-bottom: 3px;
       overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-      font-size: 12px; line-height: 1.5; color: var(--text);
-      font-weight: 650;
+      font-size: 12px; line-height: 1.4; color: var(--text);
+      font-weight: 700;
+      letter-spacing: -0.12px;
     }
-    .note-preview.empty-preview { font-weight: 400; font-style: italic; color: var(--text2); }
+    .note-preview {
+      margin-bottom: 6px;
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      font-size: 11px; line-height: 1.45; color: var(--text2);
+      word-break: break-word;
+    }
+    .note-preview.empty-preview { font-style: italic; }
     .note-meta {
       display: flex; align-items: center; gap: 8px;
       min-height: 15px; color: var(--text2); font-size: 10px;
@@ -302,7 +352,7 @@
       gap: 6px; padding: 9px 20px;
       border-top: 1px solid var(--border);
       color: var(--text2); font-size: 10px;
-      background: var(--surface);
+      background: var(--footer-tint);
     }
     ::-webkit-scrollbar { width: 7px; }
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
@@ -313,7 +363,7 @@
       .brand-mark { width: 30px; height: 30px; border-radius: 9px; }
       #header h1 { font-size: 15px; }
       .header-actions { gap: 5px; }
-      #theme-select { padding: 8px 17px 8px 6px; max-width: 72px; font-size: 10px; }
+      #theme-toggle { width: 32px; height: 32px; border-radius: 9px; }
       #btn-new-dash { padding: 8px 9px; font-size: 10px; }
       #stats { margin: 12px 12px 0; }
       .stat-box { padding: 10px 7px; }
@@ -325,7 +375,7 @@
       #footer { padding: 9px 12px; }
     }
     @media (prefers-reduced-motion: reduce) {
-      #btn-new-dash, .ftab, .note-card, .na, #search-input { transition: none !important; }
+      #btn-new-dash, #theme-toggle, .ftab, .note-card, .na, #search-input { transition: none !important; }
     }
   </style>
 </head>
@@ -344,14 +394,10 @@
       </div>
     </div>
     <div class="header-actions">
-      <label class="theme-field" for="theme-select">
-        <span class="sr-only">Appearance</span>
-        <select id="theme-select" aria-label="Dashboard appearance" title="Dashboard appearance">
-          <option value="system">System</option>
-          <option value="light">Light</option>
-          <option value="dark">Dark</option>
-        </select>
-      </label>
+      <button id="theme-toggle" type="button" aria-label="Switch to dark mode" aria-pressed="false" title="Switch to dark mode (Shift+click: follow system)">
+        <svg id="theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5a8.5 8.5 0 1 0 10.7 10.7Z"/></svg>
+        <svg id="theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42"/></svg>
+      </button>
       <button id="btn-new-dash" type="button" aria-label="Create new note">
         <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
         New note

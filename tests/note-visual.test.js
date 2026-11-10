@@ -72,11 +72,13 @@ test('body and note shell backgrounds match for all seven note colors', () => {
 });
 test('note controls, palette and editor structure remain available', () => {
   const page=html();
-  for(const id of ['wb-pin','wb-close','wb-hide','wb-new','wb-dash','wb-toolbar','editor','toolbar','color-row','statusbar']) {
+  for(const id of ['wb-pin','wb-close','wb-hide','wb-new','wb-dash','wb-toolbar','note-title','editor','toolbar','color-row','statusbar']) {
     assert.ok(page.includes(`id="${id}"`),id);
   }
   assert.match(page,/#wb-pin:hover/);
   assert.match(page,/#wb-pin\.pinned/);
+  assert.match(page,/#note-title\s*\{/);
+  assert.match(page,/#titlebar\s*\{[^}]*display:\s*flex/);
   assert.match(page,/#editor\s*\{[\s\S]*?min-height:\s*0/);
   assert.match(page,/#editor\s*\{[\s\S]*?overflow-y:\s*auto/);
 });
@@ -89,7 +91,7 @@ test('main process preserves desktop-layer ownership and native pin behavior', (
 });
 test('editor and task controllers are unaffected by visual repair', () => {
   const src=read('src/renderer/note.js');
-  for(const part of ['RaysNoteTasks.onTaskKeydown','RaysNoteTasks.serializedHTML','RaysNoteBullets.toggle','toggleNotePin','flushPendingSave']) {
+  for(const part of ['RaysNoteTasks.onTaskKeydown','RaysNoteTasks.serializedHTML','RaysNoteBullets.toggle','toggleNotePin','flushPendingSave','normalizeTitle(titleInput.value)']) {
     assert.ok(src.includes(part),part);
   }
 });

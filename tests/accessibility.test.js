@@ -104,7 +104,8 @@ test('dashboard card actions describe the note without injecting HTML',()=>{
   const src=read('src/renderer/dashboard.js');
   assert.match(src,/card\.setAttribute\('role', 'group'\)/);
   assert.match(src,/setAttribute\('aria-label', `\$\{button\.textContent/);
-  assert.match(src,/\.textContent = preview \|\| '\(empty note\)'/);
+  assert.match(src,/querySelector\('\.note-title'\)\.textContent = title/);
+  assert.match(src,/querySelector\('\.note-preview'\)\.textContent = preview/);
   assert.match(src,/const activeButton = document\.activeElement/);
   assert.match(src,/focusTarget\?\.focus\(\)/);
 });

@@ -112,6 +112,7 @@ function saveNoteUpdate(data) {
   if (!current) return { ok: false, error: 'Note no longer exists' };
   try {
     const updated = applyNotePatch(current, {
+      title: data.title,
       content: data.content,
       color: data.color,
       fontSize: data.fontSize,

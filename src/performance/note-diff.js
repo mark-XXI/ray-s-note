@@ -3,7 +3,7 @@
 // These comparisons happen AFTER applyNotePatch() has validated the change.
 // Returning a successful acknowledgement for an unchanged editor snapshot
 // avoids rewriting notes.json just to refresh updatedAt.
-const EDITOR_FIELDS = Object.freeze(['content', 'color', 'fontSize', 'dir']);
+const EDITOR_FIELDS = Object.freeze(['title', 'content', 'color', 'fontSize', 'dir']);
 
 function editorFieldsChanged(previous, next) {
   return EDITOR_FIELDS.some((field) => previous[field] !== next[field]);

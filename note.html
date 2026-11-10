@@ -8,7 +8,6 @@
     />
     <title>Ray's Note</title>
     <style>
-      /* ── Reset ── */
       * {
         box-sizing: border-box;
         margin: 0;
@@ -24,8 +23,6 @@
         user-select: none;
       }
 
-      /* Let the operating system own the physical window bounds. CSS clips
-   only the note's inner layers; no custom native region is applied. */
       #note-shell {
         --corner-radius: 8px;
         width: 100%;
@@ -40,23 +37,23 @@
         box-shadow: inset 0 0 0 1px rgba(34, 33, 30, 0.12);
       }
 
-      /* ── Title Bar (drag area) ── */
       #titlebar {
         -webkit-app-region: drag;
         background: rgba(0, 0, 0, 0.075);
         padding: 8px 10px 7px;
-        min-height: 34px;
+        min-height: 38px;
         display: flex;
         align-items: center;
-        justify-content: space-between;
+        gap: 10px;
         flex-shrink: 0;
       }
 
       #win-btns {
         -webkit-app-region: no-drag;
         display: flex;
-        gap: 6px;
+        gap: 5px;
         align-items: center;
+        flex: none;
       }
 
       .wb {
@@ -72,45 +69,41 @@
         transition:
           color 0.15s,
           transform 0.12s,
-          box-shadow 0.15s;
+          box-shadow 0.15s,
+          background 0.15s;
         flex-shrink: 0;
         padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
       }
       .wb:hover {
-        color: rgba(0, 0, 0, 0.7);
-        transform: scale(1.1);
+        color: rgba(0, 0, 0, 0.72);
+        transform: scale(1.16);
       }
       .wb:focus-visible {
         outline: 2px solid rgba(34, 34, 34, 0.72);
         outline-offset: 2px;
       }
-      #wb-close {
-        background: #ff5f57;
-      }
-      #wb-hide {
-        background: #febc2e;
-      }
-      #wb-new {
-        background: #28c840;
-      }
-      #wb-dash {
-        background: #5ac8fa;
-        font-size: 9px;
-        border-radius: 4px;
-        width: 20px;
-      }
-      /* Match the other hover-revealed title controls: monochrome, no emoji or gold. */
+      #wb-close { background: #ff5f57; }
+      #wb-hide { background: #febc2e; }
+      #wb-new { background: #28c840; }
+      #wb-dash,
+      #wb-toolbar,
       #wb-pin {
-        width: 16px;
-        height: 16px;
-        line-height: 16px;
-        border-radius: 50%;
-        background: rgba(0, 0, 0, 0.15);
-        color: transparent;
+        background: rgba(0, 0, 0, 0.16);
+      }
+      #wb-pin {
+        color: rgba(0, 0, 0, 0.48);
+      }
+      #wb-dash:hover,
+      #wb-toolbar:hover,
+      #wb-pin:hover {
+        background: rgba(0, 0, 0, 0.24);
       }
       #wb-pin svg {
-        width: 11px;
-        height: 11px;
+        width: 10px;
+        height: 10px;
         display: block;
         stroke: currentColor;
         stroke-width: 2;
@@ -118,10 +111,6 @@
         stroke-linecap: round;
         stroke-linejoin: round;
         pointer-events: none;
-      }
-      #wb-pin:hover {
-        background: rgba(0, 0, 0, 0.23);
-        color: rgba(0, 0, 0, 0.7);
       }
       #wb-pin.pinned {
         background: rgba(0, 0, 0, 0.3);
@@ -131,16 +120,38 @@
       #wb-pin:focus-visible {
         color: rgba(0, 0, 0, 0.78);
       }
-      #wb-pin:focus-visible {
-        outline: 2px solid #333;
-        outline-offset: 2px;
-      }
       #wb-pin:disabled {
         cursor: wait;
         opacity: 0.65;
       }
 
-      /* ── Color Strip ── */
+      #note-title {
+        -webkit-app-region: no-drag;
+        flex: 1;
+        width: 100%;
+        min-width: 0;
+        border: 1px solid transparent;
+        background: rgba(255, 255, 255, 0.26);
+        color: rgba(0, 0, 0, 0.72);
+        padding: 5px 10px;
+        height: 26px;
+        border-radius: 8px;
+        text-align: center;
+        font-size: 11px;
+        font-weight: 600;
+        outline: none;
+      }
+      #note-title::placeholder {
+        color: rgba(0, 0, 0, 0.4);
+      }
+      #note-title:hover {
+        background: rgba(255, 255, 255, 0.35);
+      }
+      #note-title:focus {
+        background: rgba(255, 255, 255, 0.5);
+        border-color: rgba(0, 0, 0, 0.16);
+      }
+
       #color-row {
         -webkit-app-region: no-drag;
         padding: 7px 12px;
@@ -174,7 +185,6 @@
         outline-offset: 3px;
       }
 
-      /* ── Toolbar ── */
       #toolbar {
         -webkit-app-region: no-drag;
         padding: 7px 9px;
@@ -205,12 +215,8 @@
         font-family: "Segoe UI", Tahoma, Arial, sans-serif;
         user-select: none;
       }
-      .tb:hover {
-        background: rgba(0, 0, 0, 0.18);
-      }
-      .tb.on {
-        background: rgba(0, 0, 0, 0.22);
-      }
+      .tb:hover { background: rgba(0, 0, 0, 0.18); }
+      .tb.on { background: rgba(0, 0, 0, 0.22); }
       .tb:focus-visible {
         outline: 2px solid rgba(34, 34, 34, 0.72);
         outline-offset: 1px;
@@ -231,7 +237,6 @@
         text-align: center;
       }
 
-      /* ── Editor ── */
       #editor {
         flex: 1;
         padding: 13px 15px 16px;
@@ -255,22 +260,18 @@
         pointer-events: none;
       }
 
-      /* Bullets must stay visible and aligned in both RTL and LTR notes. */
       #editor ul,
       #editor ol {
         margin: 4px 0;
         padding-inline-start: 27px;
         list-style-position: outside;
       }
-      #editor ul {
-        list-style-type: disc;
-      }
+      #editor ul { list-style-type: disc; }
       #editor li {
         padding-inline-start: 2px;
         overflow-wrap: anywhere;
       }
 
-      /* ── Tasks ── */
       .task-row {
         display: flex;
         align-items: flex-start;
@@ -316,7 +317,6 @@
         color: rgba(0, 0, 0, 0.42);
       }
 
-      /* ── Status bar ── */
       #statusbar {
         -webkit-app-region: no-drag;
         padding: 7px 12px 8px;
@@ -335,20 +335,18 @@
         font-size: 13px;
         line-height: 1;
       }
-      #save-lbl {
-        margin-left: auto;
-      }
+      #save-lbl { margin-left: auto; }
 
-      /* Keyboard operation and reduced-motion support. */
-      button.cd { padding: 0; appearance: none; -webkit-appearance: none; }
+      button.cd {
+        padding: 0;
+        appearance: none;
+        -webkit-appearance: none;
+      }
       @media (prefers-reduced-motion: reduce) {
         .wb, .cd, .tb { transition: none !important; }
       }
 
-      /* ── Scrollbar ── */
-      ::-webkit-scrollbar {
-        width: 4px;
-      }
+      ::-webkit-scrollbar { width: 4px; }
       ::-webkit-scrollbar-thumb {
         background: rgba(0, 0, 0, 0.18);
         border-radius: 4px;
@@ -357,7 +355,6 @@
   </head>
   <body>
     <div id="note-shell">
-      <!-- Title Bar -->
       <div id="titlebar">
         <div id="win-btns">
           <button class="wb" id="wb-close" type="button" title="Close" aria-label="Close note">×</button>
@@ -373,44 +370,35 @@
             title="Pin note on top"
           >
             <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path
-                d="M16 9V4l1-1V2H7v1l1 1v5a4 4 0 0 1-4 4v2h16v-2a4 4 0 0 1-4-4Z"
-              />
+              <path d="M16 9V4l1-1V2H7v1l1 1v5a4 4 0 0 1-4 4v2h16v-2a4 4 0 0 1-4-4Z" />
               <path d="M12 15v7" />
             </svg>
           </button>
           <button
             class="wb"
-            id="wb-toolbar" type="button" aria-label="Show formatting tools" aria-controls="color-row toolbar" aria-expanded="false"
-            title="Toggle Toolbar"
-            style="
-              background: #a0a0a0;
-              border-radius: 4px;
-              width: 20px;
-              font-size: 9px;
-            "
+            id="wb-toolbar"
+            type="button"
+            aria-label="Show formatting tools"
+            aria-controls="color-row toolbar"
+            aria-expanded="false"
+            title="Toggle toolbar"
           >
             ▤
           </button>
         </div>
-        <span
-          style="
-            font-size: 11px;
-            color: rgba(0, 0, 0, 0.4);
-            -webkit-app-region: drag;
-            flex: 1;
-            text-align: center;
-          "
-          >Ray's Note</span
-        >
+        <input
+          id="note-title"
+          type="text"
+          maxlength="80"
+          autocomplete="off"
+          spellcheck="false"
+          aria-label="Note title"
+          placeholder="Untitled note"
+        />
       </div>
 
-      <!-- Color Strip (separated from titlebar) -->
       <div id="color-row" role="group" aria-label="Note colors">
-        <span
-          style="font-size: 10px; color: rgba(0, 0, 0, 0.4); margin-left: 2px"
-          >Color:</span
-        >
+        <span style="font-size: 10px; color: rgba(0, 0, 0, 0.4); margin-left: 2px">Color:</span>
         <button type="button" class="cd" style="background: #fff9c4" data-c="#FFF9C4" title="Yellow" aria-label="Yellow note color" aria-pressed="false"></button>
         <button type="button" class="cd" style="background: #c8f7c5" data-c="#C8F7C5" title="Green" aria-label="Green note color" aria-pressed="false"></button>
         <button type="button" class="cd" style="background: #c5e8ff" data-c="#C5E8FF" title="Blue" aria-label="Blue note color" aria-pressed="false"></button>
@@ -420,59 +408,34 @@
         <button type="button" class="cd" style="background: #f0f0f0" data-c="#F0F0F0" title="White" aria-label="White note color" aria-pressed="false"></button>
       </div>
 
-      <!-- Toolbar -->
       <div id="toolbar" role="toolbar" aria-label="Note formatting">
-        <!-- Text format -->
         <button class="tb" data-format="bold" title="Bold"><b>B</b></button>
         <button class="tb" data-format="italic" title="Italic"><i>I</i></button>
-        <button class="tb" data-format="underline" title="Underline">
-          <u>U</u>
-        </button>
+        <button class="tb" data-format="underline" title="Underline"><u>U</u></button>
         <div class="sep"></div>
-        <!-- Alignment -->
         <button class="tb" data-align="left" title="Align Left">◀≡</button>
         <button class="tb" data-align="center" title="Center">≡</button>
         <button class="tb" data-align="right" title="Align Right">≡▶</button>
         <div class="sep"></div>
-        <!-- Direction -->
-        <button class="tb" data-direction="ltr" title="Left to Right (English)">
-          LTR
-        </button>
-        <button class="tb" data-direction="rtl" title="Right to Left (Arabic)">
-          RTL
-        </button>
+        <button class="tb" data-direction="ltr" title="Left to Right (English)">LTR</button>
+        <button class="tb" data-direction="rtl" title="Right to Left (Arabic)">RTL</button>
         <div class="sep"></div>
-        <!-- Insert -->
         <button class="tb" data-command="bullet" title="Bullet Point">•</button>
-        <button class="tb" data-command="task" title="Task / Checkbox">
-          ☐
-        </button>
+        <button class="tb" data-command="task" title="Task / Checkbox">☐</button>
         <div class="sep"></div>
-        <!-- Font size -->
-        <button class="tb" data-font-delta="-1" title="Decrease Font">
-          A-
-        </button>
+        <button class="tb" data-font-delta="-1" title="Decrease Font">A-</button>
         <span id="sz-lbl">15</span>
         <button class="tb" data-font-delta="1" title="Increase Font">A+</button>
       </div>
 
-      <!-- Editor -->
-      <div
-        id="editor"
-        contenteditable="true"
-        spellcheck="false"
-        data-ph="Start typing..."
-        role="textbox" aria-label="Note content" aria-multiline="true"
-      ></div>
+      <div id="editor" contenteditable="true" spellcheck="false" data-ph="Start typing..." role="textbox" aria-label="Note content" aria-multiline="true"></div>
 
-      <!-- Status Bar -->
       <div id="statusbar">
         <span id="wc" aria-live="off">0 words</span>
         <span id="save-dot" title="Saved" aria-hidden="true">●</span>
         <span id="save-lbl" role="status" aria-live="polite" aria-atomic="true">Saved</span>
       </div>
     </div>
-    <!-- #note-shell -->
 
     <script src="src/renderer/note-html.js"></script>
     <script src="src/renderer/note-tasks.js"></script>

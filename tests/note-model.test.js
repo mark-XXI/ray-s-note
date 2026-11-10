@@ -16,7 +16,7 @@ const now = () => fixedDate;
 
 function existing(overrides = {}) {
   return {
-    id: 100, content: '<b>مرحبا</b>', color: '#C5E8FF', fontSize: 20,
+    id: 100, title: 'Project ideas', content: '<b>مرحبا</b>', color: '#C5E8FF', fontSize: 20,
     dir: 'rtl', pinned: true, hidden: false,
     createdAt: fixedDate, updatedAt: fixedDate,
     x: -1900, y: -300, w: 300, h: 360,
@@ -37,7 +37,7 @@ test('legacy notes missing optional fields are filled in memory without changing
   const [value] = normalizeStoredNotes([original], now);
   assert.deepEqual(original, { id: 10, content: 'Old note', specialMetadata: ['a'] });
   assert.deepEqual(value, {
-    ...original, color: '#FFF9C4', fontSize: 15, dir: 'rtl',
+    ...original, title: '', color: '#FFF9C4', fontSize: 15, dir: 'rtl',
     pinned: false, hidden: false, createdAt: fixedDate, updatedAt: fixedDate,
   });
 });
@@ -71,8 +71,8 @@ test('missing and unsafe IDs fail closed', () => {
   }
 });
 
-test('invalid explicit note content or color is rejected, never replaced silently', () => {
-  for (const overrides of [{ content: null }, { content: 23 },
+test('invalid explicit note title, content or color is rejected, never replaced silently', () => {
+  for (const overrides of [{ title: null }, { title: 'x'.repeat(81) }, { content: null }, { content: 23 },
     { color: 'red' }, { color: '#1234' }, { color: '<script>' }]) {
     assert.throws(() => normalizeStoredNotes([existing(overrides)], now), NoteValidationError);
   }
@@ -103,6 +103,7 @@ test('boolean flags and timestamps reject malformed values', () => {
 test('new note has stable numeric identifier and expected defaults', () => {
   const note = createDefaultNote(1234, now);
   assert.equal(note.id, 1234);
+  assert.equal(note.title, '');
   assert.equal(note.content, '');
   assert.equal(note.dir, 'rtl');
   assert.equal(note.color, '#FFF9C4');
@@ -118,7 +119,8 @@ test('new IDs skip occupied values without changing existing IDs', () => {
 
 test('patches preserve unknown metadata without mutating input', () => {
   const old = existing();
-  const next = applyNotePatch(old, { content: '<b>Updated</b>', x: -100 }, now);
+  const next = applyNotePatch(old, { title: 'Updated title', content: '<b>Updated</b>', x: -100 }, now);
+  assert.equal(next.title, 'Updated title');
   assert.equal(next.content, '<b>Updated</b>');
   assert.equal(next.x, -100);
   assert.deepEqual(next.unknownFutureField, { foo: true });
@@ -128,7 +130,7 @@ test('patches preserve unknown metadata without mutating input', () => {
 
 test('patches cannot change identities, unexpected fields or corrupt existing data', () => {
   for (const patch of [{ id: 200 }, { createdAt: fixedDate },
-    { unexpected: true }, { content: undefined }, { color: '#bad' },
+    { unexpected: true }, { title: 9 }, { content: undefined }, { color: '#bad' },
     { hidden: 'yes' }, { fontSize: 2 }, { w: 0 }]) {
     assert.throws(() => applyNotePatch(existing(), patch, now), NoteValidationError);
   }

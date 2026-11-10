@@ -17,7 +17,7 @@ contextBridge.exposeInMainWorld('raysNote', {
   },
   save(payload) {
     return ipcRenderer.invoke('note-update', {
-      id: payload.id, content: payload.content, color: payload.color,
+      id: payload.id, title: payload.title, content: payload.content, color: payload.color,
       fontSize: payload.fontSize, dir: payload.dir,
     });
   },
