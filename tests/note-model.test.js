@@ -138,6 +138,6 @@ test('model and main process are wired without bypassing validation', () => {
   const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
   assert.match(main, /normalizeStoredNotes\(noteStore\.load\(\)\)/);
   assert.match(main, /normalizeStoredNotes\(nextNotes\)/);
-  assert.match(main, /applyNotePatch\(note,/);
+  assert.match(main, /applyNotePatch\((?:note|current),/);
   assert.match(main, /allocateNoteId\(allNotes\)/);
 });

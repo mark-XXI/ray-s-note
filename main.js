@@ -13,6 +13,8 @@ const { NoteLifecycle } = require('./src/windows/note-lifecycle');
 const { NotePinning } = require('./src/windows/note-pinning');
 const { NoteGeometry } = require('./src/windows/note-geometry');
 const { createCornerAdapter, installNoteCorners } = require('./src/windows/note-corners');
+const { editorFieldsChanged, patchFieldsChanged } = require('./src/performance/note-diff');
+const { DashboardRefresh } = require('./src/performance/dashboard-refresh');
 const { isTrustedFrame, isAuthorizedNoteUpdate } = require('./src/security/ipc-policy');
 
 // Explicitly opt into isolated local data for development testing.
@@ -28,6 +30,7 @@ const DATA_FILE = path.join(DATA_DIR, 'notes.json');
 
 const noteStore = new NoteStore(DATA_FILE);
 let allNotes = [];
+let notesById = new Map();
 const noteWins = new Map();
 let dashWin = null;
 let tray = null;
@@ -38,6 +41,11 @@ let desktopLayer = null;
 let desktopShellMessage = 0;
 let noteGeometry = null;
 let cornerAdapter = null;
+
+const dashboardRefresh = new DashboardRefresh({
+  send: sendDashNotes,
+  isActive: () => !!dashWin && !dashWin.isDestroyed() && dashWin.isVisible(),
+});
 
 function applyNativePinState(win, pinned) {
   if (pinned) {
@@ -73,13 +81,15 @@ function installDesktopShellHook(win) {
   }
 }
 
-function getNoteById(id) { return allNotes.find(n => n.id === id); }
+function getNoteById(id) { return notesById.get(id) || null; }
 
 // A change becomes live only after the new file has been safely written.
 function commitNotes(nextNotes) {
   const checkedNotes = normalizeStoredNotes(nextNotes);
   noteStore.save(checkedNotes);
+  // Only replace the live collection/index after durable storage succeeds.
   allNotes = checkedNotes;
+  notesById = new Map(checkedNotes.map((note) => [note.id, note]));
   storageErrorReported = false;
   refreshDash();
 }
@@ -101,16 +111,16 @@ function saveNoteUpdate(data) {
   const current = getNoteById(data.id);
   if (!current) return { ok: false, error: 'Note no longer exists' };
   try {
-    const nextNotes = allNotes.map((note) => note.id === data.id
-      ? applyNotePatch(note, {
-          content: data.content,
-          color: data.color,
-          fontSize: data.fontSize,
-          dir: data.dir,
-          updatedAt: new Date().toISOString(),
-        })
-      : note);
-    commitNotes(nextNotes);
+    const updated = applyNotePatch(current, {
+      content: data.content,
+      color: data.color,
+      fontSize: data.fontSize,
+      dir: data.dir,
+      updatedAt: new Date().toISOString(),
+    });
+    // Validate before comparison, but do not rewrite a byte-identical note.
+    if (!editorFieldsChanged(current, updated)) return { ok: true };
+    commitNotes(allNotes.map((note) => note.id === data.id ? updated : note));
     return { ok: true };
   } catch (error) {
     console.error('[Ray\'s Note] Note update failed:', error);
@@ -122,9 +132,10 @@ function saveNoteUpdate(data) {
 function changeNote(id, patch) {
   if (!getNoteById(id)) return false;
   try {
-    const nextNotes = allNotes.map((note) => note.id === id
-      ? applyNotePatch(note, patch) : note);
-    commitNotes(nextNotes);
+    const current = getNoteById(id);
+    const updated = applyNotePatch(current, patch);
+    if (!patchFieldsChanged(current, updated, patch)) return true;
+    commitNotes(allNotes.map((note) => note.id === id ? updated : note));
     return true;
   } catch (error) {
     reportStorageFailure(error);
@@ -228,6 +239,7 @@ async function quitSafely() {
     // acknowledged path is allowed to close its note windows.
     shutdownApproved = true;
     if (noteGeometry) noteGeometry.stop();
+    dashboardRefresh.stop();
     app.quit();
   } catch (error) {
     reportStorageFailure(error);
@@ -331,8 +343,11 @@ function openDashboard() {
   dashWin.setMenu(null);
   try { dashWin.setIcon(path.join(__dirname, 'note-icon.ico')); } catch {}
   dashWin.loadFile('dashboard.html');
-  dashWin.once('ready-to-show', () => { dashWin.show(); sendDashNotes(); });
-  dashWin.on('closed', () => { dashWin = null; });
+  // A newly opened or re-shown dashboard gets an immediate complete snapshot.
+  dashWin.on('show', () => { dashboardRefresh.flush({ force: true }); });
+  dashWin.on('restore', () => { dashboardRefresh.flush({ force: true }); });
+  dashWin.once('ready-to-show', () => { if (dashWin && !dashWin.isDestroyed()) dashWin.show(); });
+  dashWin.on('closed', () => { dashboardRefresh.discard(); dashWin = null; });
 }
 
 function sendDashNotes() {
@@ -347,7 +362,7 @@ function sendDashNotes() {
   }));
 }
 
-function refreshDash() { sendDashNotes(); }
+function refreshDash() { dashboardRefresh.request(); }
 
 // ── Tray ──────────────────────────────────────────────────────────────────────
 function buildTray() {
@@ -417,6 +432,7 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   try {
     allNotes = normalizeStoredNotes(noteStore.load());
+    notesById = new Map(allNotes.map((note) => [note.id, note]));
   } catch (error) {
     console.error("[Ray's Note] Refusing to overwrite unreadable notes:", error);
     dialog.showErrorBox(
