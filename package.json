@@ -5,6 +5,9 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "start:test": "node scripts/start-test.js",
+    "test": "node --test tests/baseline.test.js",
+    "test:syntax": "node --check main.js && node --check desktop-pin.js && node --check scripts/start-test.js && node --check tests/baseline.test.js",
     "build": "electron-builder --win --x64"
   },
   "dependencies": {

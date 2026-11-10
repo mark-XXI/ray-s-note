@@ -3,6 +3,14 @@ const path = require('path');
 const fs   = require('fs');
 const { startDesktopWatcher } = require('./desktop-pin');
 
+// Explicitly opt into isolated local data for development testing.
+// Normal `npm start` and packaged builds retain their existing userData path.
+if (!app.isPackaged && process.env.RAYS_NOTE_TEST_DATA_DIR) {
+  const testDir = path.resolve(process.env.RAYS_NOTE_TEST_DATA_DIR);
+  fs.mkdirSync(testDir, { recursive: true });
+  app.setPath('userData', testDir);
+}
+
 const DATA_DIR  = app.getPath('userData');
 const DATA_FILE = path.join(DATA_DIR, 'notes.json');
 
