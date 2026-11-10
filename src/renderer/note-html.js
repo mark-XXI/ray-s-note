@@ -58,6 +58,7 @@
         .filter(value => allowedClass.has(value));
       if (classes.length) clean.className = [...new Set(classes)].join(' ');
       if (tag === 'div' && clean.classList.contains('task-row')) {
+        clean.setAttribute('contenteditable', 'false');
         const id = node.getAttribute('id') || '';
         if (/^tk\d{6,18}$/.test(id)) clean.id = id;
       }

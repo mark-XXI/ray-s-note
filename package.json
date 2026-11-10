@@ -6,8 +6,8 @@
   "scripts": {
     "start": "electron .",
     "start:test": "node scripts/start-test.js",
-    "test": "node --test tests/baseline.test.js tests/note-store.test.js tests/note-model.test.js tests/note-lifecycle.test.js tests/security.test.js",
-    "test:syntax": "node --check main.js && node --check desktop-pin.js && node --check src/storage/note-store.js && node --check src/notes/note-model.js && node --check scripts/start-test.js && node --check tests/baseline.test.js && node --check tests/note-store.test.js && node --check tests/note-model.test.js && node --check src/windows/note-lifecycle.js && node --check tests/note-lifecycle.test.js && node --check src/security/ipc-policy.js && node --check src/preload/note.js && node --check src/preload/dashboard.js && node --check src/renderer/note.js && node --check src/renderer/dashboard.js && node --check src/renderer/note-html.js && node --check tests/security.test.js",
+    "test": "node --test tests/baseline.test.js tests/note-store.test.js tests/note-model.test.js tests/note-lifecycle.test.js tests/security.test.js tests/editor.test.js",
+    "test:syntax": "node --check main.js && node --check desktop-pin.js && node --check src/storage/note-store.js && node --check src/notes/note-model.js && node --check scripts/start-test.js && node --check tests/baseline.test.js && node --check tests/note-store.test.js && node --check tests/note-model.test.js && node --check src/windows/note-lifecycle.js && node --check tests/note-lifecycle.test.js && node --check src/security/ipc-policy.js && node --check src/preload/note.js && node --check src/preload/dashboard.js && node --check src/renderer/note.js && node --check src/renderer/dashboard.js && node --check src/renderer/note-html.js && node --check tests/security.test.js && node --check src/renderer/note-tasks.js && node --check tests/editor.test.js",
     "build": "electron-builder --win --x64"
   },
   "dependencies": {

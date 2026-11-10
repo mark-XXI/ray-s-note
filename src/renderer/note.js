@@ -34,7 +34,7 @@ noteAPI.onInit((note) => {
   });
 
   // re-attach task checkboxes (in case content was saved with them)
-  rebindTasks();
+  window.RaysNoteTasks.normalize(editor);
   updateWC();
   setSaved(true);
 
@@ -67,7 +67,7 @@ async function saveSnapshot() {
   const currentRevision = revision;
   const payload = {
     id: noteId,
-    content: window.RaysNoteHtml.sanitize(editor.innerHTML),
+    content: window.RaysNoteHtml.sanitize(window.RaysNoteTasks.serializedHTML(editor)),
     color: noteColor,
     fontSize,
     dir,
@@ -117,6 +117,18 @@ noteAPI.onFlushRequest(async (requestId) => {
 });
 
 editor.addEventListener('input', () => { updateWC(); schedSave(); });
+editor.addEventListener('change', event => {
+  if (window.RaysNoteTasks.onCheckboxChange(event, editor)) {
+    updateWC();
+    schedSave();
+  }
+});
+editor.addEventListener('keydown', event => {
+  if (window.RaysNoteTasks.onTaskKeydown(event, editor)) {
+    updateWC();
+    schedSave();
+  }
+});
 
 function updateWC() {
   const t = editor.innerText.trim();
@@ -124,10 +136,20 @@ function updateWC() {
 }
 
 // ── Formatting ────────────────────────────────────────────────────────────────
-function fmt(cmd) { editor.focus(); document.execCommand(cmd, false, null); schedSave(); }
+function preserveSelectionFocus() {
+  const selection = window.getSelection();
+  if (!selection || !selection.rangeCount || !editor.contains(selection.anchorNode)) editor.focus();
+}
+
+function fmt(cmd) {
+  if (!['bold', 'italic', 'underline'].includes(cmd)) return;
+  preserveSelectionFocus();
+  document.execCommand(cmd, false, null);
+  schedSave();
+}
 
 function setAlign(a) {
-  editor.focus();
+  preserveSelectionFocus();
   document.execCommand('justify' + a.charAt(0).toUpperCase() + a.slice(1));
   schedSave();
 }
@@ -140,6 +162,7 @@ function setDir(d) {
 }
 
 function changeSize(delta) {
+  if (!Number.isInteger(delta) || Math.abs(delta) !== 1) return;
   const sel = window.getSelection();
   const hasSelection = sel && !sel.isCollapsed && editor.contains(sel.anchorNode);
 
@@ -193,51 +216,16 @@ function setColor(dot) {
 
 // ── Bullet ────────────────────────────────────────────────────────────────────
 function insertBullet() {
-  editor.focus();
-  document.execCommand('insertHTML', false, '<div>• </div>');
+  preserveSelectionFocus();
+  document.execCommand('insertUnorderedList', false, null);
   schedSave();
 }
 
 // ── Tasks ─────────────────────────────────────────────────────────────────────
 function insertTask() {
-  editor.focus();
-  const id = 'tk' + Date.now();
-  const html = `<div class="task-row" id="${id}">` +
-    `<input type="checkbox">` +
-    `<span class="task-text" contenteditable="true">New task</span>` +
-    `</div>`;
-  document.execCommand('insertHTML', false, html);
-
-  // place cursor on task text
-  const el = document.getElementById(id);
-  if (el) {
-    const span = el.querySelector('.task-text');
-    if (span) {
-      el.querySelector('input[type=checkbox]')?.addEventListener('change', event => toggleTask(event.target));
-      span.focus();
-      const r = document.createRange();
-      r.selectNodeContents(span);
-      const s = window.getSelection();
-      s.removeAllRanges();
-      s.addRange(r);
-    }
-  }
+  window.RaysNoteTasks.insertAtSelection(editor, window.getSelection());
+  updateWC();
   schedSave();
-}
-
-function toggleTask(cb) {
-  const span = cb.nextElementSibling;
-  if (!span) return;
-  span.classList.toggle('done', cb.checked);
-  schedSave();
-}
-
-function rebindTasks() {
-  editor.querySelectorAll('.task-row input[type=checkbox]').forEach(cb => {
-    cb.addEventListener('change', () => toggleTask(cb));
-    const span = cb.nextElementSibling;
-    if (span && cb.checked) span.classList.add('done');
-  });
 }
 
 // ── Window controls ───────────────────────────────────────────────────────────
@@ -259,8 +247,14 @@ function toggleToolbar() {
 editor.addEventListener('paste', (event) => {
   event.preventDefault();
   const text = event.clipboardData?.getData('text/plain') || '';
-  document.execCommand('insertText', false, text);
+  document.execCommand('insertText', false, text.replace(/\r\n?/g, '\n'));
   schedSave();
+});
+
+// Toolbar pointer events must not steal the current text selection.
+// Button click handlers still run after preventDefault() on mousedown.
+document.getElementById('toolbar').addEventListener('mousedown', event => {
+  if (event.target.closest('button')) event.preventDefault();
 });
 
 // External event handlers satisfy the restrictive script-src CSP.
@@ -278,4 +272,3 @@ document.querySelectorAll('[data-command]').forEach(btn => btn.addEventListener(
   else if (btn.dataset.command === 'task') insertTask();
 }));
 document.querySelectorAll('[data-font-delta]').forEach(btn => btn.addEventListener('click', () => changeSize(Number(btn.dataset.fontDelta))));
-

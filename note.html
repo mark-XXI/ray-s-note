@@ -143,22 +143,43 @@ body {
 /* ── Tasks ── */
 .task-row {
   display: flex;
-  align-items: baseline;
-  gap: 6px;
-  margin: 2px 0;
-  direction: ltr;
-}
-.task-row input[type=checkbox] {
-  width: 14px; height: 14px;
-  cursor: pointer;
-  flex-shrink: 0;
-  margin-top: 3px;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 4px 0;
+  padding: 3px 0;
+  direction: inherit;
+  min-height: 27px;
   -webkit-app-region: no-drag;
 }
-.task-text { flex: 1; outline: none; }
+.task-row input[type=checkbox] {
+  width: 17px;
+  height: 17px;
+  margin: 4px 0 0;
+  cursor: pointer;
+  flex-shrink: 0;
+  accent-color: #4d8060;
+  -webkit-app-region: no-drag;
+}
+.task-text {
+  flex: 1;
+  min-width: 0;
+  min-height: 24px;
+  outline: none;
+  line-height: 1.5;
+  text-align: start;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-app-region: no-drag;
+}
+.task-text:empty::before {
+  content: attr(data-placeholder);
+  color: rgba(0,0,0,0.35);
+  pointer-events: none;
+}
+.task-text:focus-visible { outline: 1px dotted rgba(0,0,0,0.35); outline-offset: 2px; }
 .task-text.done {
   text-decoration: line-through;
-  color: rgba(0,0,0,0.38);
+  color: rgba(0,0,0,0.42);
 }
 
 /* ── Status bar ── */
@@ -248,6 +269,7 @@ body {
 </div>
 
 <script src="src/renderer/note-html.js"></script>
+<script src="src/renderer/note-tasks.js"></script>
 <script src="src/renderer/note.js"></script>
 </body>
 </html>

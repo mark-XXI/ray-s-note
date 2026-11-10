@@ -128,7 +128,7 @@ test('note HTML is allowlisted on load and before saving; paste is text-only', (
   const script = read('src/renderer/note.js');
   const sanitizer = read('src/renderer/note-html.js');
   assert.match(script, /RaysNoteHtml\.sanitize\(note\.content/);
-  assert.match(script, /RaysNoteHtml\.sanitize\(editor\.innerHTML\)/);
+  assert.match(script, /RaysNoteHtml\.sanitize\(window\.RaysNoteTasks\.serializedHTML\(editor\)\)/);
   assert.match(script, /clipboardData\?\.getData\('text\/plain'\)/);
   assert.match(sanitizer, /blocked\.has\(tag\)/);
   assert.match(sanitizer, /safeStyle\(node, clean\)/);
@@ -143,7 +143,7 @@ test('dashboard previews use textContent and cannot insert note HTML', () => {
 });
 
 test('renderer scripts never import Electron or use raw ipcRenderer', () => {
-  for (const file of ['src/renderer/note.js', 'src/renderer/dashboard.js', 'src/renderer/note-html.js']) {
+  for (const file of ['src/renderer/note.js', 'src/renderer/dashboard.js', 'src/renderer/note-html.js', 'src/renderer/note-tasks.js']) {
     assert.doesNotMatch(read(file), /ipcRenderer|require\(['"]electron['"]\)/);
   }
 });
