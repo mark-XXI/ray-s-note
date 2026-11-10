@@ -3,6 +3,10 @@ const path = require('path');
 const fs   = require('fs');
 const crypto = require('crypto');
 const { NoteStore } = require('./src/storage/note-store');
+const {
+  NoteValidationError, normalizeStoredNotes, allocateNoteId,
+  createDefaultNote, applyNotePatch,
+} = require('./src/notes/note-model');
 const { startDesktopWatcher } = require('./desktop-pin');
 
 // Explicitly opt into isolated local data for development testing.
@@ -23,13 +27,13 @@ let dashWin = null;
 let tray = null;
 let storageErrorReported = false;
 
-function nextId()        { return Date.now() + Math.floor(Math.random() * 1000); }
 function getNoteById(id) { return allNotes.find(n => n.id === id); }
 
 // A change becomes live only after the new file has been safely written.
 function commitNotes(nextNotes) {
-  noteStore.save(nextNotes);
-  allNotes = nextNotes;
+  const checkedNotes = normalizeStoredNotes(nextNotes);
+  noteStore.save(checkedNotes);
+  allNotes = checkedNotes;
   storageErrorReported = false;
   refreshDash();
 }
@@ -50,27 +54,30 @@ function saveNoteUpdate(data) {
   if (!data || typeof data !== 'object') return { ok: false, error: 'Invalid note update' };
   const current = getNoteById(data.id);
   if (!current) return { ok: false, error: 'Note no longer exists' };
-  const nextNotes = allNotes.map((note) => note.id === data.id ? {
-    ...note,
-    content: data.content,
-    color: data.color,
-    fontSize: data.fontSize,
-    dir: data.dir,
-    updatedAt: new Date().toISOString(),
-  } : note);
   try {
+    const nextNotes = allNotes.map((note) => note.id === data.id
+      ? applyNotePatch(note, {
+          content: data.content,
+          color: data.color,
+          fontSize: data.fontSize,
+          dir: data.dir,
+          updatedAt: new Date().toISOString(),
+        })
+      : note);
     commitNotes(nextNotes);
     return { ok: true };
   } catch (error) {
     console.error('[Ray\'s Note] Note update failed:', error);
-    return { ok: false, error: 'Could not write notes to disk. Please retry.' };
+    return { ok: false, error: error instanceof NoteValidationError
+      ? error.message : 'Could not write notes to disk. Please retry.' };
   }
 }
 
 function changeNote(id, patch) {
   if (!getNoteById(id)) return false;
-  const nextNotes = allNotes.map((note) => note.id === id ? { ...note, ...patch } : note);
   try {
+    const nextNotes = allNotes.map((note) => note.id === id
+      ? applyNotePatch(note, patch) : note);
     commitNotes(nextNotes);
     return true;
   } catch (error) {
@@ -237,11 +244,7 @@ function buildTray() {
 }
 
 function createNewNote() {
-  const note = {
-    id: nextId(), content: '', color: '#FFF9C4',
-    fontSize: 15, dir: 'rtl', pinned: false, hidden: false,
-    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-  };
+  const note = createDefaultNote(allocateNoteId(allNotes));
   try {
     commitNotes([note, ...allNotes]);
     openNoteWindow(note);
@@ -253,7 +256,7 @@ function createNewNote() {
 // ── App Ready ─────────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
   try {
-    allNotes = noteStore.load();
+    allNotes = normalizeStoredNotes(noteStore.load());
   } catch (error) {
     console.error("[Ray's Note] Refusing to overwrite unreadable notes:", error);
     dialog.showErrorBox(

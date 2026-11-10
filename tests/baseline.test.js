@@ -21,7 +21,9 @@ test('npm scripts support isolated testing without changing dependencies', () =>
   assert.equal(pkg.main, 'main.js');
   assert.equal(pkg.scripts.start, 'electron .');
   assert.equal(pkg.scripts['start:test'], 'node scripts/start-test.js');
-  assert.equal(pkg.scripts.test, 'node --test tests/baseline.test.js tests/note-store.test.js');
+  for (const file of ['tests/baseline.test.js', 'tests/note-store.test.js', 'tests/note-model.test.js']) {
+    assert.ok(pkg.scripts.test.includes(file), `test script missing ${file}`);
+  }
 });
 
 test('test user-data directory is local and Git ignored', () => {
