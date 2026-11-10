@@ -1,54 +1,29 @@
-# Ray's Note — Desktop recovery (Batch 09)
+# Ray's Note — Native desktop layer (Batch 10)
 
-## Why this is not native desktop embedding
+## Desired behavior
 
-Win+D is implemented by Explorer. Windows can minimize ordinary windows and
-then promote the desktop surface. There is no documented Electron API to
-parent interactive notes between Explorer's wallpaper and icon layers.
-Modifying `Progman`/`WorkerW` with undocumented messages is fragile across
-Explorer restarts, DPI configurations, virtual desktops, and Windows builds.
-This batch does **not** use those undocumented calls or elevate notes into
-full-screen applications.
+- **Unpinned** notes should be visible with Win+D, sitting in the desktop layer behind normal application windows.
+- **Pinned** notes remain normal native topmost windows above ordinary applications.
+- The dashboard stays a normal window. No manual recovery controls appear in the tray.
+- Editor content, note geometry, persisted `pinned`/`hidden`, and tray commands retain their prior meanings.
 
-## Behavior
+## Implementation
 
-- Previously: each note polled `isMinimized()` every 150 ms and restored as
-  soon as it noticed a minimize.
-- Now: a note schedules **one** restore attempt 350 ms after a native
-  `minimize` event, guarded by the persisted visibility state and window
-  lifetime. A native `restore`/`closed` event cancels recovery. This reduces
-  background work and avoids regenerating explicitly hidden notes.
-- Tray checkbox **Recover notes after Win+D** enables/disables the mechanism
-  for the current application session. It defaults to enabled to preserve
-  previous behavior. It is not saved to `notes.json`.
-- Tray **Reveal Visible Notes** is a manual fallback if Windows keeps the
-  desktop in front. It targets only previously visible notes, without
-  changing their saved hidden/pinned state; it attempts to bring windows up
-  without explicitly calling `.focus()`.
-- Pinning and z-order are orthogonal: the existing `pinned` property still
-  controls Electron `alwaysOnTop`. Automatic restore does not toggle pin.
-- The title-bar Pin control is now a grey circular SVG like its neighbors;
-  its glyph is revealed on hover/focus, and the pressed state gets a subtle
-  grayscale ring (with `aria-pressed`).
+The unpinned desktop owner is the Windows Explorer `WorkerW` found by querying `Progman`, sending the undocumented `0x052C` message with a short timeout, then finding the `WorkerW` adjacent to `SHELLDLL_DefView`. A top-level Electron HWND is linked using `SetWindowLongPtrW(GWLP_HWNDPARENT)`, **not SetParent**, so screen coordinates, editing, and native Chromium composition are preserved.
 
-## Windows manual validation
+A pinned note is detached from WorkerW before enabling `setAlwaysOnTop`. Unpinning restores desktop ownership. The native action occurs before the existing pin-state save; storage failure triggers a rollback. Explorer `TaskbarCreated` broadcasts trigger a deferred reattachment attempt. No automatic minimize/restore loops or tray recovery options remain.
 
-1. Open two unpinned notes, one pinned note, and one hidden note.
-2. Press Win+D, verify notes remain accessible or use **Reveal Visible Notes**
-   from the tray. A second Win+D should not create duplicate note windows.
-3. Disable **Recover notes after Win+D**, press Win+D again: the app must not
-   forcibly restore minimized note windows.
-4. Re-enable recovery. Confirm the tray command still reveals only previously
-   visible notes (hidden notes stay hidden in the Dashboard).
-5. Open Notepad. Unpinned notes must not stick over Notepad; pinned notes
-   must retain the always-on-top behavior.
-6. Test Alt+Tab, fullscreen video, taskbar, dashboard, and desktop icons.
-7. Relaunch with a pinned and unpinned note; verify both states and text.
-8. Check pin glyph invisible until hover/focus and its pressed indication is
-   subdued gray rather than colored emoji or gold.
-9. Check existing bullets, multiline checklists, RTL/LTR, save, Hide/Show,
-   and Quit still work.
+**Limitations:** `Progman`/`WorkerW` shell windows and message `0x052C` are undocumented. Behavior can differ between Windows builds, DPI configurations, virtual desktops, and Explorer restarts. If the host cannot be found or native binding fails, Ray's Note logs a warning and leaves normal usable note windows. **Windows GUI verification is mandatory** before release; automated tests use a mocked native adapter and cannot prove Win+D works.
 
-Desktop-shell attachment and per-virtual-desktop placement remain unimplemented,
-not guaranteed by this batch. Do not claim the note can survive Explorer
-restarts as an actual wallpaper child window.
+## Test cases (Windows x64)
+
+1. Unpin one note and press Win+D. Note remains on wallpaper and can be edited, while an ordinary window covers it.
+2. Repeat Win+D twice (toggle Show Desktop back). Ensure no duplicates, focus theft, or unexpected minimizing.
+3. Pin the note; it should remain above Notepad. Unpin; it should return to the desktop layer.
+4. Hide, show, and restart notes with mixed pin states. No hidden note resurrects.
+5. Drag and resize an unpinned note; restart and verify placement and dimensions.
+6. Verify the dashboard and tray remain accessible and contain no manual recovery option.
+7. Test Explorer restart via Task Manager (optional, **after saving notes**); confirm existing or reopened note windows are functional.
+8. On unsupported systems, check for the expected normal-window fallback rather than a crash.
+
+If Win+D doesn't work, send the terminal log and a screenshot. Do not assume the native integration works solely because automated tests pass.

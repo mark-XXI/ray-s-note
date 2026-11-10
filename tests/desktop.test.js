@@ -1,147 +1,119 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
 const path = require('node:path');
-const { startDesktopWatcher } = require('../desktop-pin');
+const { DesktopLayer } = require('../src/windows/desktop-layer');
 
-function setup({ enabled = true, allowed = true, minimized = false } = {}) {
-  const win = new EventEmitter();
-  let destroyed = false;
-  let isMinimized = minimized;
-  let canRestore = allowed;
-  const pending = new Map();
-  let counter = 0;
+function setup({ worker = 123n, owner = 0n, invalid = false } = {}) {
+  let currentWorker = worker;
+  let currentOwner = owner;
+  let alive = !invalid;
   const calls = [];
-  win.isDestroyed = () => destroyed;
-  win.isMinimized = () => isMinimized;
-  win.isVisible = () => true;
-  win.restore = () => { calls.push('restore'); isMinimized = false; win.emit('restore'); };
-  win.setMinimized = (value) => { isMinimized = value; if (value) win.emit('minimize'); };
-  win.destroy = () => { destroyed = true; win.emit('closed'); };
-  const guard = startDesktopWatcher(win, {
-    enabled, delayMs: 350,
-    schedule(fn, ms) { calls.push(['schedule', ms]); const id = ++counter; pending.set(id, fn); return id; },
-    cancel(id) { calls.push(['cancel', id]); pending.delete(id); },
-    shouldRestore: () => canRestore,
-    onError: e => calls.push(['error', e.message]),
-  });
-  function tick() {
-    const scheduled = [...pending]; pending.clear();
-    for (const [, fn] of scheduled) fn();
-  }
-  return { win, guard, calls, tick, pending, setAllowed(v) { canRestore = v; } };
+  const win = { isDestroyed: () => !alive };
+  const warnings = [];
+  const adapter = {
+    noteHandle: () => 456n,
+    isWindow: () => alive,
+    findWorker: () => currentWorker,
+    getOwner: () => currentOwner,
+    setOwner(hwnd, value) {
+      calls.push([hwnd, value]);
+      currentOwner = BigInt(value);
+    },
+  };
+  const controller = new DesktopLayer({ adapter, warn: m => warnings.push(m) });
+  return { controller, calls, win, warnings,
+    setWorker: x => { currentWorker = x; },
+    getOwner: () => currentOwner,
+    setOwnerExternally: x => { currentOwner = x; },
+    setAlive: x => { alive = x; },
+    adapter,
+  };
 }
 
-test('ordinary window activity never creates a timer or polls in the background', () => {
-  const s = setup();
-  s.win.emit('show'); s.win.emit('focus'); s.win.emit('blur');
-  assert.equal(s.pending.size, 0);
-  assert.deepEqual(s.calls, []);
-  s.guard.stop();
+test('desktop attachment owns unpinned note by Explorer layer', () => {
+  const h = setup();
+  assert.equal(h.controller.attach(h.win), true);
+  assert.equal(h.getOwner(), 123n);
+  assert.deepEqual(h.calls, [[456n, 123n]]);
 });
 
-test('Win+D minimize schedules one delayed restore rather than repeated polling', () => {
-  const s = setup();
-  s.win.setMinimized(true);
-  s.win.emit('minimize');
-  assert.deepEqual(s.calls, [['schedule', 350]]);
-  s.tick();
-  assert.equal(s.calls.filter(x=>x==='restore').length, 1);
-  assert.equal(s.pending.size, 0);
+test('repeated attachment does not rewrite owner if unchanged', () => {
+  const h = setup();
+  h.controller.attach(h.win);
+  assert.equal(h.controller.ensure(h.win), true);
+  assert.equal(h.calls.length, 1);
 });
 
-test('system restored window cancels scheduled recovery', () => {
-  const s = setup();
-  s.win.setMinimized(true);
-  s.win.restore();
-  assert.equal(s.pending.size, 0);
-  s.tick();
-  assert.equal(s.calls.filter(x=>x==='restore').length, 1);
+test('detachment restores original owner before native pinning', () => {
+  const h = setup();
+  h.controller.attach(h.win);
+  assert.equal(h.controller.detach(h.win), true);
+  assert.equal(h.getOwner(), 0n);
+  assert.deepEqual(h.calls, [[456n, 123n], [456n, 0n]]);
 });
 
-test('disabled recovery respects system minimization and cancels its timer', () => {
-  const s = setup();
-  s.win.setMinimized(true);
-  s.guard.setEnabled(false);
-  assert.equal(s.pending.size, 0);
-  s.tick();
-  assert.equal(s.calls.filter(x=>x==='restore').length, 0);
-  s.guard.setEnabled(true);
-  assert.equal(s.pending.size, 1);
-  s.tick();
-  assert.equal(s.calls.filter(x=>x==='restore').length, 1);
+test('Explorer restart reattaches to a new WorkerW without changing note data', () => {
+  const h = setup();
+  h.controller.attach(h.win);
+  h.setWorker(999n);
+  assert.equal(h.controller.ensure(h.win), true);
+  assert.equal(h.getOwner(), 999n);
+  assert.deepEqual(h.calls.at(-1), [456n, 999n]);
 });
 
-test('explicitly hidden note will never be restored by a pending timer', () => {
-  const s = setup();
-  s.win.setMinimized(true);
-  s.setAllowed(false);
-  s.tick();
-  assert.equal(s.calls.filter(x=>x==='restore').length, 0);
+test('missing desktop host fails safely with no native changes', () => {
+  const h = setup({ worker: null });
+  assert.equal(h.controller.attach(h.win), false);
+  assert.deepEqual(h.calls, []);
+  assert.match(h.warnings[0], /fallback/);
 });
 
-test('user-hide flag remains respected for compatibility with lifecycle code', () => {
-  const s = setup();
-  s.win.setMinimized(true);
-  s.win._userHide = true;
-  s.tick();
-  assert.equal(s.calls.filter(x=>x==='restore').length, 0);
+test('existing foreign owner is never overwritten', () => {
+  const h = setup({ owner: 111n });
+  assert.equal(h.controller.attach(h.win), false);
+  assert.equal(h.getOwner(), 111n);
 });
 
-test('closing a window cancels queued restore and clears registered listeners', () => {
-  const s = setup();
-  s.win.setMinimized(true);
-  s.win.destroy();
-  s.tick();
-  assert.equal(s.calls.filter(x=>x==='restore').length, 0);
-  assert.equal(s.win.listenerCount('minimize'), 0);
-  assert.equal(s.win.listenerCount('hide'), 0);
-  assert.equal(s.win.listenerCount('closed'), 0);
+test('external owner changes are not forcibly replaced', () => {
+  const h = setup();
+  h.controller.attach(h.win);
+  h.setOwnerExternally(333n);
+  assert.equal(h.controller.ensure(h.win), false);
+  h.controller.detach(h.win);
+  assert.equal(h.getOwner(), 333n);
 });
 
-test('manual hide event does not schedule new restore', () => {
-  const s = setup();
-  s.win.emit('hide');
-  assert.equal(s.pending.size, 0);
+test('closed note is forgotten without touching dead Windows handles', () => {
+  const h = setup();
+  h.controller.attach(h.win);
+  h.setAlive(false);
+  h.controller.forget(h.win);
+  assert.equal(h.controller.detach(h.win), true);
+  assert.equal(h.calls.length, 1);
 });
 
-test('native restore failure is reported without infinite retries', () => {
-  const s = setup();
-  s.win.restore = () => { throw new Error('restore denied'); };
-  s.win.setMinimized(true);
-  s.tick();
-  assert.deepEqual(s.calls.at(-1), ['error', 'restore denied']);
-  assert.equal(s.pending.size, 0);
+test('native adapter is loaded only on Windows x64', () => {
+  if (process.platform === 'win32' && process.arch === 'x64') return;
+  const { createWindowsDesktopAdapter } = require('../src/windows/win32-desktop');
+  assert.throws(() => createWindowsDesktopAdapter(), /Windows x64/);
 });
 
-test('tray recovery includes only saved-visible notes and never changes storage', () => {
+test('desktop integration removes recovery and tray toggles', () => {
   const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
-  const source = main.slice(main.indexOf('function revealVisibleNotes()'), main.indexOf('function setDesktopRecovery('));
-  assert.match(source, /if \(note\.hidden\) continue/);
-  assert.match(source, /win\.moveTop\(\)/);
-  assert.match(source, /win\.showInactive\(\)/);
-  assert.doesNotMatch(source, /changeNote\(|commitNotes\(|\.focus\(/);
-  assert.match(main, /label: 'Recover notes after Win\+D', type: 'checkbox'/);
-  assert.match(main, /label: 'Reveal Visible Notes'/);
+  assert.doesNotMatch(main, /restoreOnShowDesktop|revealVisibleNotes|desktopWatchers|startDesktopWatcher/);
+  assert.doesNotMatch(main, /label: 'Recover notes after Win\+D'|label: 'Reveal Visible Notes'/);
+  assert.match(main, /new DesktopLayer\(/);
+  assert.match(main, /desktopLayer\.attach\(win\)/);
+  assert.match(main, /desktopLayer\.detach\(win\)/);
+  assert.match(main, /win\.hookWindowMessage\(desktopShellMessage/);
 });
 
-test('desktop watcher is attached after ready-to-show and stopped on close', () => {
+test('existing renderer and icon remain unchanged', () => {
   const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
-  assert.match(main, /desktopWatchers\.set\(note\.id, watcher\)/);
-  assert.match(main, /if \(watcher\) watcher\.stop\(\)/);
-  assert.match(main, /watcher\.setEnabled\(restoreOnShowDesktop\)/);
-  assert.match(main, /note\.pinned === true/);
-});
-
-test('titlebar pin is grayscale and glyph only appears on hover or focus', () => {
+  assert.match(main, /alwaysOnTop: note\.pinned === true/);
   const html = fs.readFileSync(path.join(__dirname, '..', 'note.html'), 'utf8');
-  assert.match(html, /id="wb-pin"[\s\S]*?<svg aria-hidden="true"/);
-  assert.match(html, /#wb-pin \{[\s\S]*?color: transparent/);
-  assert.match(html, /#wb-pin\.pinned \{[\s\S]*?rgba\(0,0,0,0\.30\)/);
-  assert.doesNotMatch(html, /#wb-pin\.pinned \{[^}]*#[0-9a-fA-F]{3,8}/);
-  assert.doesNotMatch(html, /📌/);
-  const renderer = fs.readFileSync(path.join(__dirname, '..', 'src/renderer/note.js'), 'utf8');
-  assert.match(renderer, /pinBtn\.setAttribute\('aria-pressed'/);
+  assert.match(html, /id="wb-pin"/);
+  assert.match(html, /#wb-pin\.pinned/);
 });

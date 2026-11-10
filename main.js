@@ -7,7 +7,8 @@ const {
   NoteValidationError, normalizeStoredNotes, allocateNoteId,
   createDefaultNote, applyNotePatch,
 } = require('./src/notes/note-model');
-const { startDesktopWatcher } = require('./desktop-pin');
+const { DesktopLayer } = require('./src/windows/desktop-layer');
+const { createWindowsDesktopAdapter } = require('./src/windows/win32-desktop');
 const { NoteLifecycle } = require('./src/windows/note-lifecycle');
 const { NotePinning } = require('./src/windows/note-pinning');
 const { isTrustedFrame, isAuthorizedNoteUpdate } = require('./src/security/ipc-policy');
@@ -29,10 +30,44 @@ const noteWins = new Map();
 let dashWin = null;
 let tray = null;
 let storageErrorReported = false;
-// Session-only setting: use a user-controllable, event-driven alternative to
-// the old 150ms minimize polling loop. Notes' persisted visibility is unchanged.
-let restoreOnShowDesktop = true;
-const desktopWatchers = new Map();
+// Desktop attachment is native and session-scoped; the note data format stays
+// unchanged. If the Windows shell host is unavailable, normal windows remain usable.
+let desktopLayer = null;
+let desktopShellMessage = 0;
+
+function applyNativePinState(win, pinned) {
+  if (pinned) {
+    if (desktopLayer && !desktopLayer.detach(win)) {
+      throw new Error('Could not detach desktop owner before pinning');
+    }
+    win.setAlwaysOnTop(true, 'floating');
+  } else {
+    win.setAlwaysOnTop(false, 'floating');
+    if (desktopLayer) desktopLayer.attach(win);
+  }
+}
+
+function refreshDesktopAttachment() {
+  if (!desktopLayer || shutdownApproved) return;
+  for (const [id, win] of noteWins) {
+    const note = getNoteById(id);
+    if (note && !note.pinned && !note.hidden && !win.isDestroyed()) {
+      desktopLayer.ensure(win);
+    }
+  }
+}
+
+function installDesktopShellHook(win) {
+  if (!desktopShellMessage || typeof win.hookWindowMessage !== 'function') return;
+  try {
+    win.hookWindowMessage(desktopShellMessage, () => {
+      // Explorer may still be constructing its new desktop windows.
+      setTimeout(refreshDesktopAttachment, 900);
+    });
+  } catch (error) {
+    console.warn("[Ray's Note] Could not watch Explorer restart:", error.message);
+  }
+}
 
 function getNoteById(id) { return allNotes.find(n => n.id === id); }
 
@@ -158,6 +193,7 @@ const noteLifecycle = new NoteLifecycle({
 const notePinning = new NotePinning({
   getNote: getNoteById,
   getWindow: (id) => noteWins.get(id),
+  applyNativePinState,
   persistPinned: (id, pinned) => changeNote(id, { pinned }),
   notify: (id, pinned) => {
     const win = noteWins.get(id);
@@ -235,15 +271,14 @@ function openNoteWindow(note) {
     if (win.isDestroyed() || !getNoteById(note.id) || getNoteById(note.id).hidden) return;
     win.webContents.send('init', getNoteById(note.id));
     win._rayReady = true;
+    if (!note.pinned && desktopLayer) desktopLayer.attach(win);
+    installDesktopShellHook(win);
     win.show();
-    const watcher = startDesktopWatcher(win, {
-      enabled: restoreOnShowDesktop,
-      shouldRestore: () => !shutdownApproved &&
-        !!getNoteById(note.id) && !getNoteById(note.id).hidden,
-      onError: (error) => console.warn("[Ray's Note] Desktop recovery failed:", error),
-    });
-    desktopWatchers.set(note.id, watcher);
     refreshDash();
+  });
+
+  win.on('show', () => {
+    if (desktopLayer && !getNoteById(note.id)?.pinned) desktopLayer.ensure(win);
   });
 
   win.on('moved', () => {
@@ -267,9 +302,7 @@ function openNoteWindow(note) {
   });
 
   win.on('closed', () => {
-    const watcher = desktopWatchers.get(note.id);
-    if (watcher) watcher.stop();
-    desktopWatchers.delete(note.id);
+    if (desktopLayer) desktopLayer.forget(win);
     if (noteWins.get(note.id) === win) noteWins.delete(note.id);
     refreshDash();
   });
@@ -314,34 +347,6 @@ function sendDashNotes() {
 
 function refreshDash() { sendDashNotes(); }
 
-// A deterministic manual recovery path if Explorer keeps a note behind the
-// desktop after Win+D. Only reveal notes that were already marked visible.
-// Never bring intentionally hidden notes back or mutate the notes JSON file.
-function revealVisibleNotes() {
-  for (const note of allNotes) {
-    if (note.hidden) continue;
-    const win = noteWins.get(note.id);
-    if (!win || win.isDestroyed()) {
-      openNoteWindow(note);
-      continue;
-    }
-    try {
-      if (win.isMinimized()) win.restore();
-      if (!win.isVisible()) win.showInactive();
-      win.moveTop(); // Z-order only: never explicitly activate the editor.
-    } catch (error) {
-      console.warn("[Ray's Note] Could not reveal note:", note.id, error);
-    }
-  }
-}
-
-function setDesktopRecovery(enabled) {
-  restoreOnShowDesktop = enabled === true;
-  for (const watcher of desktopWatchers.values()) {
-    watcher.setEnabled(restoreOnShowDesktop);
-  }
-}
-
 // ── Tray ──────────────────────────────────────────────────────────────────────
 function buildTray() {
   const iconPath = path.join(__dirname, 'note-icon.ico');
@@ -362,13 +367,6 @@ function buildTray() {
     { type: 'separator' },
     { label: 'Hide All Notes', click: () => { void noteLifecycle.hideAll(); } },
     { label: 'Show All Notes', click: () => { void noteLifecycle.showAll(); } },
-    { type: 'separator' },
-    { label: 'Reveal Visible Notes', click: () => revealVisibleNotes() },
-    {
-      label: 'Recover notes after Win+D', type: 'checkbox',
-      checked: restoreOnShowDesktop,
-      click: (item) => setDesktopRecovery(item.checked),
-    },
     { type: 'separator' },
     { label: "Quit Ray's Note", click: () => { void quitSafely(); } },
   ]));
@@ -392,6 +390,16 @@ function createNewNote() {
 
 // ── App Ready ─────────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
+  try {
+    const adapter = createWindowsDesktopAdapter();
+    desktopLayer = new DesktopLayer({
+      adapter,
+      warn: (message) => console.warn("[Ray's Note] Desktop layer:", message),
+    });
+    desktopShellMessage = adapter.registerTaskbarCreated();
+  } catch (error) {
+    console.warn("[Ray's Note] Desktop integration unavailable; normal notes remain available:", error.message);
+  }
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   try {
     allNotes = normalizeStoredNotes(noteStore.load());

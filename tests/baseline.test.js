@@ -11,7 +11,7 @@ const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
 
 // These are baseline structural/smoke checks, not claims about desktop runtime behavior.
 test('required application entry points exist', () => {
-  for (const name of ['main.js', 'note.html', 'dashboard.html', 'desktop-pin.js', 'note-icon.ico']) {
+  for (const name of ['main.js', 'note.html', 'dashboard.html', 'src/windows/desktop-layer.js', 'note-icon.ico']) {
     assert.ok(fs.statSync(path.join(root, name)).isFile(), `${name} missing`);
   }
 });

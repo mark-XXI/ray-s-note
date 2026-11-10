@@ -139,3 +139,21 @@ test('existing close, hide, tray lifecycle, and editor routes are retained', () 
   assert.match(note, /RaysNoteTasks\.insertAtSelection/);
   assert.match(note, /RaysNoteBullets\.toggle/);
 });
+
+
+test('native desktop adapter switches modes without changing stored note until save', () => {
+  const h = harness();
+  const nativeCalls = [];
+  h.controller.applyNativePinState = (_win, pinned) => nativeCalls.push(pinned);
+  assert.equal(h.controller.toggle(17).ok, true);
+  assert.deepEqual(nativeCalls, [true]);
+  assert.equal(h.note.pinned, true);
+});
+
+test('failed save rolls back desktop attachment mode', () => {
+  const h = harness({ persistFailure: true });
+  const nativeCalls = [];
+  h.controller.applyNativePinState = (_win, pinned) => nativeCalls.push(pinned);
+  assert.equal(h.controller.toggle(17).ok, false);
+  assert.deepEqual(nativeCalls, [true, false]);
+});

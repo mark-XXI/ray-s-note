@@ -3,8 +3,8 @@
 // Persistent pin changes must match the native window's always-on-top state.
 // The controller has no Electron dependency, so failure paths are unit-testable.
 class NotePinning {
-  constructor({ getNote, getWindow, persistPinned, notify, reportError }) {
-    Object.assign(this, { getNote, getWindow, persistPinned, notify, reportError });
+  constructor({ getNote, getWindow, persistPinned, notify, reportError, applyNativePinState }) {
+    Object.assign(this, { getNote, getWindow, persistPinned, notify, reportError, applyNativePinState });
   }
 
   set(id, pinned) {
@@ -22,7 +22,10 @@ class NotePinning {
 
     // Change the native state first. If this throws, persisted state is untouched.
     try {
-      if (alive) win.setAlwaysOnTop(pinned, 'floating');
+      if (alive) {
+        if (this.applyNativePinState) this.applyNativePinState(win, pinned);
+        else win.setAlwaysOnTop(pinned, 'floating');
+      }
     } catch (error) {
       this.reportError(error);
       return { ok: false, error: 'Could not change native pin state' };
@@ -37,7 +40,10 @@ class NotePinning {
     }
     if (!persisted) {
       if (alive && !win.isDestroyed()) {
-        try { win.setAlwaysOnTop(previous, 'floating'); }
+        try {
+          if (this.applyNativePinState) this.applyNativePinState(win, previous);
+          else win.setAlwaysOnTop(previous, 'floating');
+        }
         catch (error) { this.reportError(error); }
       }
       return { ok: false, error: 'Could not save pin state' };
