@@ -298,7 +298,7 @@ ipcRenderer.send('get-notes');
 function updateStats() {
   document.getElementById('st-total').textContent  = allNotes.length;
   document.getElementById('st-open').textContent   = allNotes.filter(n => n.isOpen).length;
-  document.getElementById('st-hidden').textContent = allNotes.filter(n => n.hidden).length;
+  document.getElementById('st-hidden').textContent = allNotes.filter(n => !n.isOpen).length;
   document.getElementById('st-pinned').textContent = allNotes.filter(n => n.pinned).length;
 }
 
@@ -319,7 +319,7 @@ function renderList() {
 
   // filter
   if (curFilter === 'open')   notes = notes.filter(n => n.isOpen);
-  if (curFilter === 'hidden') notes = notes.filter(n => n.hidden || !n.isOpen);
+  if (curFilter === 'hidden') notes = notes.filter(n => !n.isOpen);
   if (curFilter === 'pinned') notes = notes.filter(n => n.pinned);
 
   // search

@@ -21,7 +21,7 @@ test('npm scripts support isolated testing without changing dependencies', () =>
   assert.equal(pkg.main, 'main.js');
   assert.equal(pkg.scripts.start, 'electron .');
   assert.equal(pkg.scripts['start:test'], 'node scripts/start-test.js');
-  for (const file of ['tests/baseline.test.js', 'tests/note-store.test.js', 'tests/note-model.test.js']) {
+  for (const file of ['tests/baseline.test.js', 'tests/note-store.test.js', 'tests/note-model.test.js', 'tests/note-lifecycle.test.js']) {
     assert.ok(pkg.scripts.test.includes(file), `test script missing ${file}`);
   }
 });
@@ -65,4 +65,17 @@ test('important existing note IPC routes remain available', () => {
   for (const name of ['note-update', 'note-close', 'note-minimize', 'show-note', 'hide-note', 'delete-note', 'pin-note']) {
     assert.ok(main.includes(`ipcMain.on('${name}'`) || main.includes(`ipcMain.handle('${name}'`), `missing note IPC route: ${name}`);
   }
+});
+
+// Batch 04 lifecycle wiring must survive future refactors.
+test('native close and dashboard/tray controls share lifecycle operations', () => {
+  const source = read('main.js');
+  assert.match(source, /const noteLifecycle = new NoteLifecycle/);
+  assert.match(source, /win\.on\('close', \(event\) => \{/);
+  assert.match(source, /event\.preventDefault\(\)/);
+  assert.match(source, /noteLifecycle\.hide\(note\.id\)/);
+  for (const operation of ['hideAll', 'showAll', 'hide', 'show', 'delete', 'whenIdle']) {
+    assert.ok(source.includes(`noteLifecycle.${operation}(`), `missing lifecycle operation: ${operation}`);
+  }
+  assert.match(source, /app\.on\('before-quit'/);
 });

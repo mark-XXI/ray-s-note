@@ -8,6 +8,7 @@ const {
   createDefaultNote, applyNotePatch,
 } = require('./src/notes/note-model');
 const { startDesktopWatcher } = require('./desktop-pin');
+const { NoteLifecycle } = require('./src/windows/note-lifecycle');
 
 // Explicitly opt into isolated local data for development testing.
 // Normal `npm start` and packaged builds retain their existing userData path.
@@ -89,23 +90,24 @@ function changeNote(id, patch) {
 // Handshake allows the tray Quit action to wait for pending 700ms editor saves.
 const pendingFlushes = new Map();
 function flushWindow(win) {
-  if (win.isDestroyed()) return Promise.resolve(true);
+  if (win.isDestroyed() || !win._rayReady) return Promise.resolve(true);
   return new Promise((resolve) => {
     const requestId = crypto.randomBytes(12).toString('hex');
-    const timer = setTimeout(() => {
+    let finished = false;
+    const onClosed = () => finish(false);
+    const timer = setTimeout(() => finish(false), 8000);
+    const finish = (ok) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      win.removeListener('closed', onClosed);
       pendingFlushes.delete(requestId);
-      resolve(false);
-    }, 8000);
-    pendingFlushes.set(requestId, {
-      sender: win.webContents,
-      finish: (ok) => {
-        clearTimeout(timer);
-        pendingFlushes.delete(requestId);
-        resolve(ok === true);
-      },
-    });
+      resolve(ok === true);
+    };
+    pendingFlushes.set(requestId, { sender: win.webContents, finish });
+    win.once('closed', onClosed);
     try { win.webContents.send('app-flush-request', requestId); }
-    catch (error) { pendingFlushes.get(requestId)?.finish(false); }
+    catch (error) { finish(false); }
   });
 }
 
@@ -115,23 +117,58 @@ ipcMain.on('app-flush-result', (event, result) => {
   if (request && request.sender === event.sender) request.finish(result.ok);
 });
 
-let quittingFromTray = false;
-async function quitSafely() {
-  if (quittingFromTray) return;
-  quittingFromTray = true;
+function removeNote(id) {
+  if (!getNoteById(id)) return false;
   try {
-    for (const win of noteWins.values()) {
-      if (!await flushWindow(win)) {
-        dialog.showErrorBox(
-          'Ray\'s Note — Unsaved changes',
-          'A note could not confirm its latest save. Quit was cancelled; retry after saving.'
-        );
+    commitNotes(allNotes.filter((note) => note.id !== id));
+    return true;
+  } catch (error) {
+    reportStorageFailure(error);
+    return false;
+  }
+}
+
+function reportUnsaved() {
+  dialog.showErrorBox(
+    "Ray's Note — Unsaved changes",
+    'The latest edits could not be saved. The note was left open; retry after saving.'
+  );
+}
+
+const noteLifecycle = new NoteLifecycle({
+  getNote: getNoteById,
+  listNotes: () => allNotes,
+  updateNote: changeNote,
+  removeNote,
+  getWindow: (id) => noteWins.get(id),
+  openWindow: openNoteWindow,
+  flushWindow,
+  reportError: reportStorageFailure,
+  reportUnsaved,
+  refresh: refreshDash,
+});
+
+let shutdownApproved = false;
+let shutdownInProgress = false;
+async function quitSafely() {
+  if (shutdownInProgress || shutdownApproved) return;
+  shutdownInProgress = true;
+  try {
+    await noteLifecycle.whenIdle();
+    for (const win of [...noteWins.values()]) {
+      if (!win.isDestroyed() && !await flushWindow(win)) {
+        reportUnsaved();
         return;
       }
     }
+    // The normal before-quit event runs again here; only the fully
+    // acknowledged path is allowed to close its note windows.
+    shutdownApproved = true;
     app.quit();
+  } catch (error) {
+    reportStorageFailure(error);
   } finally {
-    quittingFromTray = false;
+    shutdownInProgress = false;
   }
 }
 
@@ -157,13 +194,17 @@ function openNoteWindow(note) {
     show: false,
   });
 
+  win._rayReady = false;
   win.loadFile('note.html');
 
   win.once('ready-to-show', () => {
+    if (win.isDestroyed() || !getNoteById(note.id) || getNoteById(note.id).hidden) return;
+    win.webContents.send('init', getNoteById(note.id));
+    win._rayReady = true;
     win.show();
-    win.webContents.send('init', note);
-    // Start native watcher — restores window if Show Desktop minimizes it
+    // Desktop behavior is revised in Batch 09, not this lifecycle batch.
     startDesktopWatcher(win);
+    refreshDash();
   });
 
   win.on('moved', () => {
@@ -178,7 +219,18 @@ function openNoteWindow(note) {
     if (n) changeNote(note.id, { w: nw, h: nh });
   });
 
-  win.on('closed', () => { noteWins.delete(note.id); refreshDash(); });
+  // Native close (Alt+F4, window manager, etc.) must take the same
+  // flush-and-persist path as the editor's red Close button.
+  win.on('close', (event) => {
+    if (shutdownApproved) return;
+    event.preventDefault();
+    void noteLifecycle.hide(note.id);
+  });
+
+  win.on('closed', () => {
+    if (noteWins.get(note.id) === win) noteWins.delete(note.id);
+    refreshDash();
+  });
 
   noteWins.set(note.id, win);
 }
@@ -204,10 +256,14 @@ function openDashboard() {
 
 function sendDashNotes() {
   if (!dashWin || dashWin.isDestroyed()) return;
-  const openIds = new Set(noteWins.keys());
-  dashWin.webContents.send('notes-list', allNotes.map(n => ({
-    ...n, isOpen: openIds.has(n.id)
-  })));
+  dashWin.webContents.send('notes-list', allNotes.map((note) => {
+    const win = noteWins.get(note.id);
+    return {
+      ...note,
+      isOpen: !note.hidden && !!win && !win.isDestroyed() &&
+        (win.isVisible() || !win._rayReady),
+    };
+  }));
 }
 
 function refreshDash() { sendDashNotes(); }
@@ -230,16 +286,16 @@ function buildTray() {
     { label: 'New Note',   click: () => createNewNote()  },
     { label: 'Dashboard',  click: () => openDashboard()  },
     { type: 'separator' },
-    { label: 'Hide All Notes', click: () => noteWins.forEach(w => !w.isDestroyed() && w.hide()) },
-    { label: 'Show All Notes', click: () => noteWins.forEach(w => !w.isDestroyed() && w.show()) },
+    { label: 'Hide All Notes', click: () => { void noteLifecycle.hideAll(); } },
+    { label: 'Show All Notes', click: () => { void noteLifecycle.showAll(); } },
     { type: 'separator' },
     { label: "Quit Ray's Note", click: () => { void quitSafely(); } },
   ]));
 
   tray.on('click', () => {
     const anyVisible = [...noteWins.values()].some(w => !w.isDestroyed() && w.isVisible());
-    if (anyVisible) noteWins.forEach(w => !w.isDestroyed() && w.hide());
-    else            noteWins.forEach(w => !w.isDestroyed() && w.show());
+    if (anyVisible) void noteLifecycle.hideAll();
+    else void noteLifecycle.showAll();
   });
 }
 
@@ -274,65 +330,43 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {});
+app.on('before-quit', (event) => {
+  if (shutdownApproved) return;
+  event.preventDefault();
+  void quitSafely();
+});
 // No unconditional exit write: it could overwrite unreadable data or stale edits.
 
 // ── IPC ───────────────────────────────────────────────────────────────────────
 ipcMain.handle('note-update', (_event, data) => saveNoteUpdate(data));
 
-ipcMain.on('note-close', (event) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (!win) return;
-  for (const [id, w] of noteWins) {
-    if (w === win) {
-      const n = getNoteById(id);
-      if (n && !changeNote(id, { hidden: true })) return;
-      break;
-    }
+function noteIdFromSender(sender) {
+  for (const [id, win] of noteWins) {
+    if (!win.isDestroyed() && win.webContents === sender) return id;
   }
-  win.close();
+  return null;
+}
+
+ipcMain.on('note-close', (event) => {
+  const id = noteIdFromSender(event.sender);
+  if (id !== null) void noteLifecycle.hide(id);
 });
 
-// User hide: win.hide() = SW_HIDE → IsIconic stays false → watcher ignores it
-ipcMain.on('note-minimize',  (event) => { const w = BrowserWindow.fromWebContents(event.sender); if (w) { w._userHide = true; w.hide(); } });
-ipcMain.on('note-new',       ()      => createNewNote());
-ipcMain.on('open-dashboard', ()      => openDashboard());
-ipcMain.on('get-notes',      (event) => sendDashNotes());
-
-ipcMain.on('show-note', (event, id) => {
-  const n = getNoteById(id);
-  if (!n) return;
-  if (!changeNote(id, { hidden: false })) return;
-  const ex = noteWins.get(id);
-  if (ex && !ex.isDestroyed()) ex.show();
-  else openNoteWindow(n);
-  refreshDash();
+// The yellow Hide button is now persistent, like Dashboard Hide.
+ipcMain.on('note-minimize', (event) => {
+  const id = noteIdFromSender(event.sender);
+  if (id !== null) void noteLifecycle.hide(id);
 });
+ipcMain.on('note-new', () => createNewNote());
+ipcMain.on('open-dashboard', () => openDashboard());
+ipcMain.on('get-notes', () => sendDashNotes());
 
-ipcMain.on('hide-note', (_event, id) => {
-  void (async () => {
-    if (!getNoteById(id)) return;
-    const win = noteWins.get(id);
-    if (win && !win.isDestroyed() && !await flushWindow(win)) {
-      dialog.showErrorBox("Ray's Note — Unsaved changes",
-        'Could not save the latest edits, so this note was not hidden.');
-      return;
-    }
-    if (!changeNote(id, { hidden: true })) return;
-    if (win && !win.isDestroyed()) win.close();
-    refreshDash();
-  })().catch(reportStorageFailure);
-});
-
-ipcMain.on('delete-note', (event, id) => {
-  try { commitNotes(allNotes.filter(n => n.id !== id)); }
-  catch (error) { reportStorageFailure(error); return; }
-  const win = noteWins.get(id);
-  if (win && !win.isDestroyed()) win.destroy();
-  noteWins.delete(id); refreshDash();
-});
+ipcMain.on('show-note', (_event, id) => { void noteLifecycle.show(id); });
+ipcMain.on('hide-note', (_event, id) => { void noteLifecycle.hide(id); });
+ipcMain.on('delete-note', (_event, id) => { void noteLifecycle.delete(id); });
 
 ipcMain.on('new-note-from-dash', () => createNewNote());
-ipcMain.on('pin-note', (event, id) => {
+ipcMain.on('pin-note', (_event, id) => {
   const n = getNoteById(id);
   if (n) changeNote(id, { pinned: !n.pinned });
 });
