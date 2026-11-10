@@ -291,27 +291,77 @@ ipcRenderer.on('init', (_, note) => {
 });
 
 // ── Save logic ────────────────────────────────────────────────────────────────
+let revision = 0;
+let savedRevision = 0;
+let inFlight = null;
+
 function schedSave() {
-  setSaved(false);
+  revision += 1;
+  setSaveState('saving');
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(doSave, 700);
+  saveTimer = setTimeout(() => { void saveSnapshot(); }, 700);
 }
 
-function doSave() {
-  ipcRenderer.send('note-update', {
+// Each write is acknowledged by the main process, not merely queued through IPC.
+async function saveSnapshot() {
+  if (inFlight) {
+    const prior = inFlight;
+    await prior;
+    // A new edit may have been made while the earlier snapshot was saving.
+    if (inFlight === prior) inFlight = null;
+  }
+  if (savedRevision >= revision) return true;
+  const currentRevision = revision;
+  const payload = {
     id: noteId,
-    content:  editor.innerHTML,
-    color:    noteColor,
-    fontSize: fontSize,
-    dir:      dir,
-  });
-  setSaved(true);
+    content: editor.innerHTML,
+    color: noteColor,
+    fontSize,
+    dir,
+  };
+  const task = ipcRenderer.invoke('note-update', payload)
+    .then((reply) => {
+      if (!reply || reply.ok !== true) {
+        setSaveState('error');
+        return false;
+      }
+      savedRevision = Math.max(savedRevision, currentRevision);
+      if (savedRevision === revision) setSaveState('saved');
+      return true;
+    })
+    .catch((error) => {
+      console.error('Could not save note:', error);
+      setSaveState('error');
+      return false;
+    });
+  inFlight = task;
+  try { return await task; }
+  finally { if (inFlight === task) inFlight = null; }
 }
 
-function setSaved(yes) {
-  saveDot.style.color = yes ? 'rgba(0,0,0,0.2)' : '#e53e3e';
-  saveLbl.textContent = yes ? 'Saved' : 'Saving...';
+async function flushPendingSave() {
+  clearTimeout(saveTimer);
+  // The edit revision can change while a save is running.
+  while (savedRevision < revision) {
+    const ok = await saveSnapshot();
+    if (!ok) return false;
+  }
+  return true;
 }
+
+function setSaveState(state) {
+  saveDot.style.color = state === 'saved' ? 'rgba(0,0,0,0.2)' : '#e53e3e';
+  saveLbl.textContent = state === 'saved' ? 'Saved' :
+    (state === 'error' ? 'Save failed — retry editing' : 'Saving...');
+  saveLbl.title = state === 'error' ? 'The latest changes are not on disk.' : '';
+}
+
+function setSaved(yes) { setSaveState(yes ? 'saved' : 'saving'); }
+
+ipcRenderer.on('app-flush-request', async (_event, requestId) => {
+  const ok = await flushPendingSave();
+  ipcRenderer.send('app-flush-result', { requestId, ok });
+});
 
 editor.addEventListener('input', () => { updateWC(); schedSave(); });
 
@@ -437,7 +487,9 @@ function rebindTasks() {
 }
 
 // ── Window controls ───────────────────────────────────────────────────────────
-function closeNote() { doSave(); ipcRenderer.send('note-close'); }
+async function closeNote() {
+  if (await flushPendingSave()) ipcRenderer.send('note-close');
+}
 function hideNote()  { ipcRenderer.send('note-minimize'); }
 function newNote()   { ipcRenderer.send('note-new'); }
 function openDash()  { ipcRenderer.send('open-dashboard'); }

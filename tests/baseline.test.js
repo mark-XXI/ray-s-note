@@ -21,7 +21,7 @@ test('npm scripts support isolated testing without changing dependencies', () =>
   assert.equal(pkg.main, 'main.js');
   assert.equal(pkg.scripts.start, 'electron .');
   assert.equal(pkg.scripts['start:test'], 'node scripts/start-test.js');
-  assert.equal(pkg.scripts.test, 'node --test tests/baseline.test.js');
+  assert.equal(pkg.scripts.test, 'node --test tests/baseline.test.js tests/note-store.test.js');
 });
 
 test('test user-data directory is local and Git ignored', () => {
@@ -32,14 +32,14 @@ test('test user-data directory is local and Git ignored', () => {
   assert.match(read('main.js'), /app\.setPath\('userData', testDir\)/);
 });
 
-test('all literal renderer IPC send channels have main-process handlers', () => {
+test('all literal renderer IPC send/invoke channels have main-process handlers', () => {
   const main = read('main.js');
   const sends = [read('note.html'), read('dashboard.html')]
-    .flatMap((html) => [...html.matchAll(/ipcRenderer\.send\(\s*['"]([^'"]+)['"]/g)])
+    .flatMap((html) => [...html.matchAll(/ipcRenderer\.(?:send|invoke)\(\s*['"]([^'"]+)['"]/g)])
     .map((match) => match[1]);
   assert.ok(sends.length >= 8, 'unexpectedly few renderer IPC calls');
   for (const channel of new Set(sends)) {
-    assert.ok(main.includes(`ipcMain.on('${channel}'`), `missing IPC handler: ${channel}`);
+    assert.ok(main.includes(`ipcMain.on('${channel}'`) || main.includes(`ipcMain.handle('${channel}'`), `missing IPC handler: ${channel}`);
   }
 });
 
@@ -61,6 +61,6 @@ test('dashboard exposes note management actions', () => {
 test('important existing note IPC routes remain available', () => {
   const main = read('main.js');
   for (const name of ['note-update', 'note-close', 'note-minimize', 'show-note', 'hide-note', 'delete-note', 'pin-note']) {
-    assert.ok(main.includes(`ipcMain.on('${name}'`), `missing note IPC route: ${name}`);
+    assert.ok(main.includes(`ipcMain.on('${name}'`) || main.includes(`ipcMain.handle('${name}'`), `missing note IPC route: ${name}`);
   }
 });

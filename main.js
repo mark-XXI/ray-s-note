@@ -1,6 +1,8 @@
-const { app, BrowserWindow, ipcMain, screen, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Tray, Menu, nativeImage, dialog } = require('electron');
 const path = require('path');
 const fs   = require('fs');
+const crypto = require('crypto');
+const { NoteStore } = require('./src/storage/note-store');
 const { startDesktopWatcher } = require('./desktop-pin');
 
 // Explicitly opt into isolated local data for development testing.
@@ -14,31 +16,117 @@ if (!app.isPackaged && process.env.RAYS_NOTE_TEST_DATA_DIR) {
 const DATA_DIR  = app.getPath('userData');
 const DATA_FILE = path.join(DATA_DIR, 'notes.json');
 
-function loadData() {
-  try {
-    if (fs.existsSync(DATA_FILE)) {
-      const parsed = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-      return Array.isArray(parsed) ? parsed : [];
-    }
-  } catch (e) {}
-  return [];
-}
-
-function saveData(notes) {
-  try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(DATA_FILE, JSON.stringify(notes, null, 2), 'utf8');
-  } catch (e) {}
-}
-
-let allNotes = loadData();
-let noteWins = new Map();
-let dashWin  = null;
-let tray     = null;
+const noteStore = new NoteStore(DATA_FILE);
+let allNotes = [];
+const noteWins = new Map();
+let dashWin = null;
+let tray = null;
+let storageErrorReported = false;
 
 function nextId()        { return Date.now() + Math.floor(Math.random() * 1000); }
 function getNoteById(id) { return allNotes.find(n => n.id === id); }
-function persistAll()    { saveData(allNotes); }
+
+// A change becomes live only after the new file has been safely written.
+function commitNotes(nextNotes) {
+  noteStore.save(nextNotes);
+  allNotes = nextNotes;
+  storageErrorReported = false;
+  refreshDash();
+}
+
+function reportStorageFailure(error) {
+  console.error('[Ray\'s Note] Storage failure:', error);
+  if (storageErrorReported) return;
+  storageErrorReported = true;
+  dialog.showErrorBox(
+    'Ray\'s Note — Save failed',
+    'The requested change was not saved. Your existing notes file was not replaced. ' +
+      'Check disk space and folder permissions, then try again.\n\n' + error.message
+  );
+}
+
+// The renderer expects a result and must never display "Saved" before this succeeds.
+function saveNoteUpdate(data) {
+  if (!data || typeof data !== 'object') return { ok: false, error: 'Invalid note update' };
+  const current = getNoteById(data.id);
+  if (!current) return { ok: false, error: 'Note no longer exists' };
+  const nextNotes = allNotes.map((note) => note.id === data.id ? {
+    ...note,
+    content: data.content,
+    color: data.color,
+    fontSize: data.fontSize,
+    dir: data.dir,
+    updatedAt: new Date().toISOString(),
+  } : note);
+  try {
+    commitNotes(nextNotes);
+    return { ok: true };
+  } catch (error) {
+    console.error('[Ray\'s Note] Note update failed:', error);
+    return { ok: false, error: 'Could not write notes to disk. Please retry.' };
+  }
+}
+
+function changeNote(id, patch) {
+  if (!getNoteById(id)) return false;
+  const nextNotes = allNotes.map((note) => note.id === id ? { ...note, ...patch } : note);
+  try {
+    commitNotes(nextNotes);
+    return true;
+  } catch (error) {
+    reportStorageFailure(error);
+    return false;
+  }
+}
+
+// Handshake allows the tray Quit action to wait for pending 700ms editor saves.
+const pendingFlushes = new Map();
+function flushWindow(win) {
+  if (win.isDestroyed()) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const requestId = crypto.randomBytes(12).toString('hex');
+    const timer = setTimeout(() => {
+      pendingFlushes.delete(requestId);
+      resolve(false);
+    }, 8000);
+    pendingFlushes.set(requestId, {
+      sender: win.webContents,
+      finish: (ok) => {
+        clearTimeout(timer);
+        pendingFlushes.delete(requestId);
+        resolve(ok === true);
+      },
+    });
+    try { win.webContents.send('app-flush-request', requestId); }
+    catch (error) { pendingFlushes.get(requestId)?.finish(false); }
+  });
+}
+
+ipcMain.on('app-flush-result', (event, result) => {
+  if (!result || typeof result.requestId !== 'string') return;
+  const request = pendingFlushes.get(result.requestId);
+  if (request && request.sender === event.sender) request.finish(result.ok);
+});
+
+let quittingFromTray = false;
+async function quitSafely() {
+  if (quittingFromTray) return;
+  quittingFromTray = true;
+  try {
+    for (const win of noteWins.values()) {
+      if (!await flushWindow(win)) {
+        dialog.showErrorBox(
+          'Ray\'s Note — Unsaved changes',
+          'A note could not confirm its latest save. Quit was cancelled; retry after saving.'
+        );
+        return;
+      }
+    }
+    app.quit();
+  } finally {
+    quittingFromTray = false;
+  }
+}
 
 // ── Note Window ────────────────────────────────────────────────────────────────
 function openNoteWindow(note) {
@@ -74,13 +162,13 @@ function openNoteWindow(note) {
   win.on('moved', () => {
     const [nx, ny] = win.getPosition();
     const n = getNoteById(note.id);
-    if (n) { n.x = nx; n.y = ny; persistAll(); }
+    if (n) changeNote(note.id, { x: nx, y: ny });
   });
 
   win.on('resized', () => {
     const [nw, nh] = win.getSize();
     const n = getNoteById(note.id);
-    if (n) { n.w = nw; n.h = nh; persistAll(); }
+    if (n) changeNote(note.id, { w: nw, h: nh });
   });
 
   win.on('closed', () => { noteWins.delete(note.id); refreshDash(); });
@@ -138,7 +226,7 @@ function buildTray() {
     { label: 'Hide All Notes', click: () => noteWins.forEach(w => !w.isDestroyed() && w.hide()) },
     { label: 'Show All Notes', click: () => noteWins.forEach(w => !w.isDestroyed() && w.show()) },
     { type: 'separator' },
-    { label: "Quit Ray's Note", click: () => { persistAll(); app.exit(0); } },
+    { label: "Quit Ray's Note", click: () => { void quitSafely(); } },
   ]));
 
   tray.on('click', () => {
@@ -154,14 +242,28 @@ function createNewNote() {
     fontSize: 15, dir: 'rtl', pinned: false, hidden: false,
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
   };
-  allNotes.unshift(note);
-  persistAll();
-  openNoteWindow(note);
-  refreshDash();
+  try {
+    commitNotes([note, ...allNotes]);
+    openNoteWindow(note);
+  } catch (error) {
+    reportStorageFailure(error);
+  }
 }
 
 // ── App Ready ─────────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
+  try {
+    allNotes = noteStore.load();
+  } catch (error) {
+    console.error("[Ray's Note] Refusing to overwrite unreadable notes:", error);
+    dialog.showErrorBox(
+      "Ray's Note — Cannot open notes",
+      "The notes file could not be read. Ray's Note will exit without changing it.\n\n" +
+      error.message
+    );
+    app.quit();
+    return;
+  }
   buildTray();
   const visible = allNotes.filter(n => !n.hidden);
   if (visible.length === 0 && allNotes.length === 0) createNewNote();
@@ -169,14 +271,10 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {});
-app.on('before-quit', () => persistAll());
-process.on('exit',   () => persistAll());
+// No unconditional exit write: it could overwrite unreadable data or stale edits.
 
 // ── IPC ───────────────────────────────────────────────────────────────────────
-ipcMain.on('note-update', (event, data) => {
-  const n = getNoteById(data.id);
-  if (n) { Object.assign(n, data, { updatedAt: new Date().toISOString() }); persistAll(); refreshDash(); }
-});
+ipcMain.handle('note-update', (_event, data) => saveNoteUpdate(data));
 
 ipcMain.on('note-close', (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
@@ -184,7 +282,7 @@ ipcMain.on('note-close', (event) => {
   for (const [id, w] of noteWins) {
     if (w === win) {
       const n = getNoteById(id);
-      if (n) { n.hidden = true; persistAll(); refreshDash(); }
+      if (n && !changeNote(id, { hidden: true })) return;
       break;
     }
   }
@@ -200,23 +298,31 @@ ipcMain.on('get-notes',      (event) => sendDashNotes());
 ipcMain.on('show-note', (event, id) => {
   const n = getNoteById(id);
   if (!n) return;
-  n.hidden = false; persistAll();
+  if (!changeNote(id, { hidden: false })) return;
   const ex = noteWins.get(id);
   if (ex && !ex.isDestroyed()) ex.show();
   else openNoteWindow(n);
   refreshDash();
 });
 
-ipcMain.on('hide-note', (event, id) => {
-  const n = getNoteById(id);
-  if (n) { n.hidden = true; persistAll(); }
-  const win = noteWins.get(id);
-  if (win && !win.isDestroyed()) win.close();
-  refreshDash();
+ipcMain.on('hide-note', (_event, id) => {
+  void (async () => {
+    if (!getNoteById(id)) return;
+    const win = noteWins.get(id);
+    if (win && !win.isDestroyed() && !await flushWindow(win)) {
+      dialog.showErrorBox("Ray's Note — Unsaved changes",
+        'Could not save the latest edits, so this note was not hidden.');
+      return;
+    }
+    if (!changeNote(id, { hidden: true })) return;
+    if (win && !win.isDestroyed()) win.close();
+    refreshDash();
+  })().catch(reportStorageFailure);
 });
 
 ipcMain.on('delete-note', (event, id) => {
-  allNotes = allNotes.filter(n => n.id !== id); persistAll();
+  try { commitNotes(allNotes.filter(n => n.id !== id)); }
+  catch (error) { reportStorageFailure(error); return; }
   const win = noteWins.get(id);
   if (win && !win.isDestroyed()) win.destroy();
   noteWins.delete(id); refreshDash();
@@ -225,5 +331,5 @@ ipcMain.on('delete-note', (event, id) => {
 ipcMain.on('new-note-from-dash', () => createNewNote());
 ipcMain.on('pin-note', (event, id) => {
   const n = getNoteById(id);
-  if (n) { n.pinned = !n.pinned; persistAll(); refreshDash(); }
+  if (n) changeNote(id, { pinned: !n.pinned });
 });
