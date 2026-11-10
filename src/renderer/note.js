@@ -60,7 +60,9 @@ noteAPI.onInit((note) => {
 
   // mark active color dot
   document.querySelectorAll('.cd').forEach(d => {
-    d.classList.toggle('on', d.dataset.c === noteColor);
+    const active = d.dataset.c === noteColor;
+    d.classList.toggle('on', active);
+    d.setAttribute('aria-pressed', String(active));
   });
 
   // re-attach task checkboxes (in case content was saved with them)
@@ -71,6 +73,8 @@ noteAPI.onInit((note) => {
   document.getElementById('color-row').style.display = 'none';
   document.getElementById('toolbar').style.display   = 'none';
   toolbarVisible = false;
+  document.getElementById('wb-toolbar').setAttribute('aria-expanded', 'false');
+  document.getElementById('wb-toolbar').setAttribute('aria-label', 'Show formatting tools');
 });
 
 // ── Save logic ────────────────────────────────────────────────────────────────
@@ -237,8 +241,11 @@ function changeSize(delta) {
 
 // ── Color ─────────────────────────────────────────────────────────────────────
 function setColor(dot) {
-  document.querySelectorAll('.cd').forEach(d => d.classList.remove('on'));
-  dot.classList.add('on');
+  document.querySelectorAll('.cd').forEach(d => {
+    const active = d === dot;
+    d.classList.toggle('on', active);
+    d.setAttribute('aria-pressed', String(active));
+  });
   noteColor = dot.dataset.c;
   document.getElementById('note-shell').style.background = noteColor;
   document.body.style.background = noteColor;
@@ -267,10 +274,15 @@ function hideNote()  { noteAPI.hide(); }
 function newNote()   { noteAPI.create(); }
 function openDash()  { noteAPI.dashboard(); }
 let toolbarVisible = true;
-function toggleToolbar() {
+function toggleToolbar(focusFirst = false) {
   toolbarVisible = !toolbarVisible;
   document.getElementById('color-row').style.display = toolbarVisible ? '' : 'none';
-  document.getElementById('toolbar').style.display   = toolbarVisible ? '' : 'none';
+  document.getElementById('toolbar').style.display = toolbarVisible ? '' : 'none';
+  const btn = document.getElementById('wb-toolbar');
+  btn.setAttribute('aria-expanded', String(toolbarVisible));
+  btn.setAttribute('aria-label', toolbarVisible ? 'Hide formatting tools' : 'Show formatting tools');
+  if (focusFirst && toolbarVisible) document.querySelector('#toolbar button')?.focus();
+  else if (focusFirst && !toolbarVisible) editor.focus();
 }
 
 // Treat clipboard HTML as untrusted. Formatting paste can be reintroduced
@@ -294,7 +306,7 @@ document.getElementById('wb-hide').addEventListener('click', hideNote);
 document.getElementById('wb-new').addEventListener('click', newNote);
 document.getElementById('wb-dash').addEventListener('click', openDash);
 document.getElementById('wb-pin').addEventListener('click', () => { void toggleNotePin(); });
-document.getElementById('wb-toolbar').addEventListener('click', toggleToolbar);
+document.getElementById('wb-toolbar').addEventListener('click', () => toggleToolbar());
 document.querySelectorAll('.cd').forEach(dot => dot.addEventListener('click', () => setColor(dot)));
 document.querySelectorAll('[data-format]').forEach(btn => btn.addEventListener('click', () => fmt(btn.dataset.format)));
 document.querySelectorAll('[data-align]').forEach(btn => btn.addEventListener('click', () => setAlign(btn.dataset.align)));
@@ -304,3 +316,14 @@ document.querySelectorAll('[data-command]').forEach(btn => btn.addEventListener(
   else if (btn.dataset.command === 'task') insertTask();
 }));
 document.querySelectorAll('[data-font-delta]').forEach(btn => btn.addEventListener('click', () => changeSize(Number(btn.dataset.fontDelta))));
+
+// App shortcuts: do not intercept standard rich-text shortcuts or task Enter.
+document.addEventListener('keydown', event => {
+  window.RaysNoteKeys.note(event, {
+    create: newNote,
+    dashboard: openDash,
+    save: () => { void flushPendingSave(); },
+    toolbar: () => toggleToolbar(true),
+    escape: toolbarVisible ? () => { toggleToolbar(); editor.focus(); } : undefined,
+  });
+});

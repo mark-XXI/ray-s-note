@@ -245,6 +245,7 @@ button:focus-visible, input:focus-visible {
 .na.pin { color: #e9cd89; }
 .na.del { color: #fa9999; }
 .na.del:hover { color: #ffbaba; background: rgba(255,107,107,0.16); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 #footer {
   flex: 0 0 auto;
   background: var(--surface);
@@ -253,6 +254,9 @@ button:focus-visible, input:focus-visible {
   text-align: center;
   color: var(--text2);
   font-size: 10px;
+}
+@media (prefers-reduced-motion: reduce) {
+  #btn-new-dash, .ftab, .note-card, .na, #search-input { transition: none !important; }
 }
 ::-webkit-scrollbar { width: 7px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -274,7 +278,7 @@ button:focus-visible, input:focus-visible {
 
 <div id="header">
   <h1>Ray's <span>Note</span> - Dashboard</h1>
-  <button id="btn-new-dash">+ New Note</button>
+  <button id="btn-new-dash" type="button" aria-label="Create new note">+ New Note</button>
 </div>
 
 <div id="stats">
@@ -296,23 +300,25 @@ button:focus-visible, input:focus-visible {
   </div>
 </div>
 
-<div id="filter-bar">
-  <button class="ftab on" data-f="all">All</button>
-  <button class="ftab"    data-f="open">On Desktop</button>
-  <button class="ftab"    data-f="hidden">Hidden</button>
-  <button class="ftab"    data-f="pinned">Pinned</button>
+<div id="filter-bar" role="group" aria-label="Filter notes">
+  <button type="button" class="ftab on" data-f="all" aria-pressed="true">All</button>
+  <button type="button" class="ftab" data-f="open" aria-pressed="false">On Desktop</button>
+  <button type="button" class="ftab" data-f="hidden" aria-pressed="false">Hidden</button>
+  <button type="button" class="ftab" data-f="pinned" aria-pressed="false">Pinned</button>
 </div>
 
 <div id="search-row">
-  <input id="search-input" type="text" placeholder="Search notes..." spellcheck="false">
+  <input id="search-input" type="search" aria-label="Search notes" autocomplete="off" placeholder="Search notes..." spellcheck="false">
+  <div id="search-count" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
 </div>
 
-<div id="notes-wrap">
+<div id="notes-wrap" role="region" aria-label="Notes list">
   <div class="empty-state"><div>📋</div>No notes yet — create one!</div>
 </div>
 
 <div id="footer">Notes are saved automatically · Ray's Note v1.0</div>
 
+<script src="src/renderer/keyboard.js"></script>
 <script src="src/renderer/dashboard.js"></script>
 </body>
 </html>

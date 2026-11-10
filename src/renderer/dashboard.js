@@ -25,14 +25,21 @@ function updateStats() {
 
 // ── Filter ───────────────────────────────────────────────────────────────────
 function setFilter(btn) {
-  document.querySelectorAll('.ftab').forEach(b => b.classList.remove('on'));
-  btn.classList.add('on');
+  document.querySelectorAll('.ftab').forEach(b => {
+    const selected = b === btn;
+    b.classList.toggle('on', selected);
+    b.setAttribute('aria-pressed', String(selected));
+  });
   curFilter = btn.dataset.f;
   renderList();
 }
 
 // ── Render ───────────────────────────────────────────────────────────────────
 function renderList() {
+  // A note-state update rebuilds cards; restore focus to the corresponding action.
+  const activeButton = document.activeElement?.closest?.('.note-card button[data-action]');
+  const activeId = activeButton?.closest('.note-card')?.dataset.id;
+  const activeAction = activeButton?.dataset.action;
   const q     = document.getElementById('search-input').value.toLowerCase();
   const wrap  = document.getElementById('notes-wrap');
 
@@ -50,6 +57,9 @@ function renderList() {
       return text.includes(q);
     });
   }
+
+  const count = document.getElementById('search-count');
+  if (count) count.textContent = `${notes.length} ${notes.length === 1 ? 'note' : 'notes'} shown`;
 
   // pinned first
   notes = [...notes].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
@@ -70,6 +80,8 @@ function renderList() {
     const card = document.createElement('div');
     card.className = 'note-card' + (n.pinned ? ' pinned' : '');
     card.dataset.id = String(n.id);
+    card.setAttribute('role', 'group');
+    card.setAttribute('aria-label', `Note: ${(preview || 'Empty note').slice(0, 80)}`);
     card.innerHTML = `
       <div class="note-swatch"></div>
       <div class="note-body">
@@ -90,8 +102,18 @@ function renderList() {
       </div>`;
     card.querySelector('.note-swatch').style.background = n.color || '#FFF9C4';
     card.querySelector('.note-preview').textContent = preview || '(empty note)';
+    card.querySelectorAll('button[data-action]').forEach(button => {
+      button.type = 'button';
+      button.setAttribute('aria-label', `${button.textContent.trim()}: ${(preview || 'empty note').slice(0, 50)}`);
+    });
     wrap.appendChild(card);
   });
+  if (activeId && activeAction) {
+    const matching = Array.from(wrap.querySelectorAll('.note-card')).find(c => c.dataset.id === activeId);
+    const focusTarget = matching?.querySelector(`button[data-action="${activeAction}"]`) ||
+      matching?.querySelector('button[data-action]');
+    focusTarget?.focus();
+  }
 }
 
 // ── Actions ──────────────────────────────────────────────────────────────────
@@ -124,3 +146,17 @@ document.getElementById('notes-wrap').addEventListener('click', (event) => {
   else if (action === 'delete') deleteNote(id);
 });
 
+
+// Search and New Note are available without a mouse. A slash only works when
+// focus is outside editable text. Escape clears the active search input.
+document.addEventListener('keydown', event => {
+  window.RaysNoteKeys.dashboard(event, {
+    create: newNote,
+    search: () => document.getElementById('search-input').focus(),
+    clearSearch: () => {
+      const search = document.getElementById('search-input');
+      if (search.value) { search.value = ''; renderList(); }
+      else document.getElementById('btn-new-dash').focus();
+    },
+  });
+});
