@@ -124,11 +124,16 @@
       #wb-new {
         background: #28c840;
       }
-      #wb-dash,
+      /* Dashboard is the fourth window control; blue sets it apart. */
+      #wb-dash {
+        background: #579ce5;
+      }
+      #wb-dash:hover {
+        background: #367dc6;
+      }
       #wb-toolbar {
         background: rgba(0, 0, 0, 0.16);
       }
-      #wb-dash:hover,
       #wb-toolbar:hover {
         background: rgba(0, 0, 0, 0.24);
       }
@@ -424,12 +429,23 @@
         flex-shrink: 0;
         gap: 6px;
       }
-      #save-dot {
-        font-size: 13px;
-        line-height: 1;
-      }
-      #save-lbl {
+      /* Keep the save dot immediately beside its label, centered as one unit. */
+      #save-indicator {
         margin-left: auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        white-space: nowrap;
+      }
+      #save-dot {
+        display: block;
+        flex: none;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background-color: currentColor;
+        font-size: 0;
+        line-height: 0;
       }
 
       button.cd {
@@ -588,10 +604,12 @@
 
       <div id="statusbar">
         <span id="wc" aria-live="off">0 words</span>
-        <span id="save-dot" title="Saved" aria-hidden="true">●</span>
-        <span id="save-lbl" role="status" aria-live="polite" aria-atomic="true"
-          >Saved</span
-        >
+        <div id="save-indicator">
+          <span id="save-dot" title="Saved" aria-hidden="true">●</span>
+          <span id="save-lbl" role="status" aria-live="polite" aria-atomic="true"
+            >Saved</span
+          >
+        </div>
       </div>
     </div>
 
