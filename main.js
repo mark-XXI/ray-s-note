@@ -478,6 +478,17 @@ function trustedDashboard(event) {
     isTrustedFrame(event, dashWin.webContents);
 }
 
+// The renderer explicitly requests its initial snapshot after registering listeners.
+// This closes the race where ready-to-show emits before the renderer subscribes.
+ipcMain.on('request-note-init', (event) => {
+  const id = trustedNoteId(event);
+  if (id === null) return;
+  const note = getNoteById(id);
+  const win = noteWins.get(id);
+  if (!note || note.hidden || !win || win.isDestroyed()) return;
+  win.webContents.send('init', note);
+});
+
 ipcMain.handle('note-update', (event, data) => {
   const id = trustedNoteId(event);
   if (id === null || !isAuthorizedNoteUpdate(id, data)) {
