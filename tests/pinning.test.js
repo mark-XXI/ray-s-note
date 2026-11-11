@@ -157,3 +157,47 @@ test('failed save rolls back desktop attachment mode', () => {
   assert.equal(h.controller.toggle(17).ok, false);
   assert.deepEqual(nativeCalls, [true, false]);
 });
+
+
+test('renderer initialization handshake survives an early missed init event', () => {
+  const renderer = read('src/renderer/note.js');
+  const preload = read('src/preload/note.js');
+  const main = read('main.js');
+  const vm = require('node:vm');
+  const callbacks = new Map();
+  const outgoing = [];
+  let api;
+  const ipcRenderer = {
+    on(channel, listener) { callbacks.set(channel, listener); },
+    send(channel) { outgoing.push(channel); },
+    invoke() { return Promise.resolve({ ok: true }); },
+  };
+  const sandbox = {
+    require(name) {
+      assert.equal(name, 'electron');
+      return {
+        contextBridge: { exposeInMainWorld(name, exposed) {
+          assert.equal(name, 'raysNote');
+          api = exposed;
+        } },
+        ipcRenderer,
+      };
+    },
+  };
+  vm.runInNewContext(preload, sandbox);
+  let initialized = null;
+  api.onInit(note => { initialized = note; });
+  assert.equal(initialized, null); // early main-process send was missed
+  api.requestInit();
+  assert.deepEqual(outgoing, ['request-note-init']);
+  assert.equal(typeof callbacks.get('init'), 'function');
+  callbacks.get('init')({}, { id: 17, pinned: false });
+  assert.equal(initialized.id, 17);
+
+  const listenIndex = renderer.indexOf('noteAPI.onInit((note) => {');
+  const requestIndex = renderer.lastIndexOf('noteAPI.requestInit();');
+  assert.ok(listenIndex >= 0 && requestIndex > listenIndex, 'renderer must subscribe before requesting init');
+  assert.match(renderer, /if \(noteId !== null\) return;/);
+  assert.match(main, /ipcMain\.on\('request-note-init', \(event\) => \{\s*const id = trustedNoteId\(event\);/);
+  assert.match(main, /win\.webContents\.send\('init', note\)/);
+});

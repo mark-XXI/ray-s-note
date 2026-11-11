@@ -57,6 +57,7 @@ async function toggleNotePin() {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 noteAPI.onInit((note) => {
+  if (noteId !== null) return; // An early push and the ready handshake may both arrive.
   noteId = note.id;
   noteColor = note.color || '#FFF9C4';
   fontSize = note.fontSize || 15;
@@ -351,3 +352,6 @@ document.addEventListener('keydown', (event) => {
     escape: toolbarVisible ? () => { toggleToolbar(); editor.focus(); } : undefined,
   });
 });
+
+// Register all note controls before requesting the initial note snapshot.
+noteAPI.requestInit();

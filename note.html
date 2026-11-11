@@ -25,6 +25,7 @@
 
       #note-shell {
         --corner-radius: 8px;
+        position: relative;
         width: 100%;
         height: 100vh;
         min-height: 0;
@@ -35,6 +36,35 @@
         isolation: isolate;
         background: var(--nc, #fff9c4);
         box-shadow: inset 0 0 0 1px rgba(34, 33, 30, 0.12);
+      }
+
+      /* Physical-paper cues only while the note is attached to the desktop.
+         The upper edge looks adhered; the lower corner gently lifts.
+         Decorative layers never capture mouse or keyboard input. */
+      #note-shell:has(#wb-pin:not(.pinned))::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 16px;
+        right: 16px;
+        height: 4px;
+        border-radius: 0 0 6px 6px;
+        background: linear-gradient(to bottom, rgba(23, 22, 20, 0.10), transparent);
+        pointer-events: none;
+        z-index: 3;
+      }
+      #note-shell:has(#wb-pin:not(.pinned))::after {
+        content: "";
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        width: 17px;
+        height: 17px;
+        background: linear-gradient(135deg, transparent 48%, rgba(255, 255, 255, 0.77) 51%, rgba(255, 255, 255, 0.32));
+        clip-path: polygon(100% 0, 100% 100%, 0 100%);
+        filter: drop-shadow(-1px -1px 1px rgba(30, 25, 20, 0.14));
+        pointer-events: none;
+        z-index: 3;
       }
 
       #titlebar {
@@ -85,25 +115,56 @@
         outline: 2px solid rgba(34, 34, 34, 0.72);
         outline-offset: 2px;
       }
-      #wb-close { background: #ff5f57; }
-      #wb-hide { background: #febc2e; }
-      #wb-new { background: #28c840; }
+      #wb-close {
+        background: #ff5f57;
+      }
+      #wb-hide {
+        background: #febc2e;
+      }
+      #wb-new {
+        background: #28c840;
+      }
       #wb-dash,
-      #wb-toolbar,
-      #wb-pin {
+      #wb-toolbar {
         background: rgba(0, 0, 0, 0.16);
       }
-      #wb-pin {
-        color: rgba(0, 0, 0, 0.48);
-      }
       #wb-dash:hover,
-      #wb-toolbar:hover,
-      #wb-pin:hover {
+      #wb-toolbar:hover {
         background: rgba(0, 0, 0, 0.24);
       }
+
+      /* Dedicated non-draggable hit area keeps the pin clickable inside the title bar. */
+      #pin-click-zone {
+        -webkit-app-region: no-drag;
+        position: relative;
+        z-index: 2;
+        flex: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        margin-left: auto;
+      }
+      #pin-click-zone #wb-pin { margin-left: 0; }
+
+      /* Quiet pin at the opposite (right) corner of the note. */
+      #wb-pin {
+        -webkit-app-region: no-drag;
+        width: 28px;
+        height: 28px;
+        margin-left: auto;
+        flex-shrink: 0;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: rgba(32, 33, 36, 0.34);
+        box-shadow: none;
+        transition: background 140ms ease, color 140ms ease;
+      }
       #wb-pin svg {
-        width: 10px;
-        height: 10px;
+        width: 12px;
+        height: 12px;
         display: block;
         stroke: currentColor;
         stroke-width: 2;
@@ -111,19 +172,45 @@
         stroke-linecap: round;
         stroke-linejoin: round;
         pointer-events: none;
+        transition: width 140ms ease, height 140ms ease;
+      }
+      #wb-pin:hover {
+        transform: none;
+        background: rgba(0, 0, 0, 0.055);
+        color: rgba(32, 33, 36, 0.62);
       }
       #wb-pin.pinned {
-        background: rgba(0, 0, 0, 0.3);
-        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.16);
+        background: transparent;
+        color: rgba(20, 22, 26, 0.88);
+        box-shadow: none;
       }
-      #wb-pin.pinned:hover,
+      #wb-pin.pinned svg {
+        width: 17px;
+        height: 17px;
+        stroke-width: 2.2;
+      }
+      #wb-pin.pinned:hover {
+        background: rgba(0, 0, 0, 0.055);
+        color: rgba(20, 22, 26, 0.98);
+      }
       #wb-pin:focus-visible {
-        color: rgba(0, 0, 0, 0.78);
+        color: rgba(20, 22, 26, 0.88);
       }
       #wb-pin:disabled {
         cursor: wait;
         opacity: 0.65;
       }
+      @media (prefers-reduced-motion: reduce) {
+        #wb-pin,
+        #wb-pin svg { transition: none; }
+      }
+
+      /* An unpinned note keeps a quiet gray pushpin; pinning enlarges and
+         darkens the same glyph. The note surface itself conveys adhesion. */
+      #wb-pin:not(.pinned) { color: rgba(32, 33, 36, 0.34); }
+      #wb-pin:not(.pinned):hover { color: rgba(32, 33, 36, 0.62); }
+      #wb-pin .pin-glyph { display: block; }
+      #wb-pin.pinned .pin-glyph { width: 17px; height: 17px; }
 
       #note-title {
         -webkit-app-region: no-drag;
@@ -215,8 +302,12 @@
         font-family: "Segoe UI", Tahoma, Arial, sans-serif;
         user-select: none;
       }
-      .tb:hover { background: rgba(0, 0, 0, 0.18); }
-      .tb.on { background: rgba(0, 0, 0, 0.22); }
+      .tb:hover {
+        background: rgba(0, 0, 0, 0.18);
+      }
+      .tb.on {
+        background: rgba(0, 0, 0, 0.22);
+      }
       .tb:focus-visible {
         outline: 2px solid rgba(34, 34, 34, 0.72);
         outline-offset: 1px;
@@ -266,7 +357,9 @@
         padding-inline-start: 27px;
         list-style-position: outside;
       }
-      #editor ul { list-style-type: disc; }
+      #editor ul {
+        list-style-type: disc;
+      }
       #editor li {
         padding-inline-start: 2px;
         overflow-wrap: anywhere;
@@ -335,7 +428,9 @@
         font-size: 13px;
         line-height: 1;
       }
-      #save-lbl { margin-left: auto; }
+      #save-lbl {
+        margin-left: auto;
+      }
 
       button.cd {
         padding: 0;
@@ -343,10 +438,16 @@
         -webkit-appearance: none;
       }
       @media (prefers-reduced-motion: reduce) {
-        .wb, .cd, .tb { transition: none !important; }
+        .wb,
+        .cd,
+        .tb {
+          transition: none !important;
+        }
       }
 
-      ::-webkit-scrollbar { width: 4px; }
+      ::-webkit-scrollbar {
+        width: 4px;
+      }
       ::-webkit-scrollbar-thumb {
         background: rgba(0, 0, 0, 0.18);
         border-radius: 4px;
@@ -357,22 +458,41 @@
     <div id="note-shell">
       <div id="titlebar">
         <div id="win-btns">
-          <button class="wb" id="wb-close" type="button" title="Close" aria-label="Close note">×</button>
-          <button class="wb" id="wb-hide" type="button" title="Hide" aria-label="Hide note">−</button>
-          <button class="wb" id="wb-new" type="button" title="New Note" aria-label="New note">+</button>
-          <button class="wb" id="wb-dash" type="button" title="Dashboard" aria-label="Open dashboard">≡</button>
           <button
             class="wb"
-            id="wb-pin"
+            id="wb-close"
             type="button"
-            aria-pressed="false"
-            aria-label="Pin note on top"
-            title="Pin note on top"
+            title="Close"
+            aria-label="Close note"
           >
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="M16 9V4l1-1V2H7v1l1 1v5a4 4 0 0 1-4 4v2h16v-2a4 4 0 0 1-4-4Z" />
-              <path d="M12 15v7" />
-            </svg>
+            ×
+          </button>
+          <button
+            class="wb"
+            id="wb-hide"
+            type="button"
+            title="Hide"
+            aria-label="Hide note"
+          >
+            −
+          </button>
+          <button
+            class="wb"
+            id="wb-new"
+            type="button"
+            title="New Note"
+            aria-label="New note"
+          >
+            +
+          </button>
+          <button
+            class="wb"
+            id="wb-dash"
+            type="button"
+            title="Dashboard"
+            aria-label="Open dashboard"
+          >
+            ≡
           </button>
           <button
             class="wb"
@@ -395,10 +515,30 @@
           aria-label="Note title"
           placeholder="Untitled note"
         />
+        <div id="pin-click-zone">
+        <button
+            class="wb"
+            id="wb-pin"
+            type="button"
+            aria-pressed="false"
+            aria-label="Pin note on top"
+            title="Pin note on top"
+          >
+            <svg class="pin-glyph" aria-hidden="true" viewBox="0 0 24 24">
+              <path
+                d="M16 9V4l1-1V2H7v1l1 1v5a4 4 0 0 1-4 4v2h16v-2a4 4 0 0 1-4-4Z"
+              />
+              <path d="M12 15v7" />
+            </svg>
+        </button>
+        </div>
       </div>
 
       <div id="color-row" role="group" aria-label="Note colors">
-        <span style="font-size: 10px; color: rgba(0, 0, 0, 0.4); margin-left: 2px">Color:</span>
+        <span
+          style="font-size: 10px; color: rgba(0, 0, 0, 0.4); margin-left: 2px"
+          >Color:</span
+        >
         <button type="button" class="cd" style="background: #fff9c4" data-c="#FFF9C4" title="Yellow" aria-label="Yellow note color" aria-pressed="false"></button>
         <button type="button" class="cd" style="background: #c8f7c5" data-c="#C8F7C5" title="Green" aria-label="Green note color" aria-pressed="false"></button>
         <button type="button" class="cd" style="background: #c5e8ff" data-c="#C5E8FF" title="Blue" aria-label="Blue note color" aria-pressed="false"></button>
@@ -411,29 +551,47 @@
       <div id="toolbar" role="toolbar" aria-label="Note formatting">
         <button class="tb" data-format="bold" title="Bold"><b>B</b></button>
         <button class="tb" data-format="italic" title="Italic"><i>I</i></button>
-        <button class="tb" data-format="underline" title="Underline"><u>U</u></button>
+        <button class="tb" data-format="underline" title="Underline">
+          <u>U</u>
+        </button>
         <div class="sep"></div>
         <button class="tb" data-align="left" title="Align Left">◀≡</button>
         <button class="tb" data-align="center" title="Center">≡</button>
         <button class="tb" data-align="right" title="Align Right">≡▶</button>
         <div class="sep"></div>
-        <button class="tb" data-direction="ltr" title="Left to Right (English)">LTR</button>
-        <button class="tb" data-direction="rtl" title="Right to Left (Arabic)">RTL</button>
+        <button class="tb" data-direction="ltr" title="Left to Right (English)">
+          LTR
+        </button>
+        <button class="tb" data-direction="rtl" title="Right to Left (Arabic)">
+          RTL
+        </button>
         <div class="sep"></div>
         <button class="tb" data-command="bullet" title="Bullet Point">•</button>
-        <button class="tb" data-command="task" title="Task / Checkbox">☐</button>
+        <button class="tb" data-command="task" title="Task / Checkbox">
+          ☐
+        </button>
         <div class="sep"></div>
-        <button class="tb" data-font-delta="-1" title="Decrease Font">A-</button>
+        <button class="tb" data-font-delta="-1" title="Decrease Font">
+          A-
+        </button>
         <span id="sz-lbl">15</span>
         <button class="tb" data-font-delta="1" title="Increase Font">A+</button>
       </div>
 
-      <div id="editor" contenteditable="true" spellcheck="false" data-ph="Start typing..." role="textbox" aria-label="Note content" aria-multiline="true"></div>
+      <div
+        id="editor"
+        contenteditable="true"
+        spellcheck="false"
+        data-ph="Start typing..."
+        role="textbox" aria-label="Note content" aria-multiline="true"
+      ></div>
 
       <div id="statusbar">
         <span id="wc" aria-live="off">0 words</span>
         <span id="save-dot" title="Saved" aria-hidden="true">●</span>
-        <span id="save-lbl" role="status" aria-live="polite" aria-atomic="true">Saved</span>
+        <span id="save-lbl" role="status" aria-live="polite" aria-atomic="true"
+          >Saved</span
+        >
       </div>
     </div>
 
