@@ -36,7 +36,7 @@ let dashWin = null;
 let tray = null;
 let storageErrorReported = false;
 // Desktop attachment is native and session-scoped; the note data format stays
-// unchanged. If the Windows shell host is unavailable, normal windows remain usable.
+// unchanged. An unpinned note must never fall back to a normal floating window.
 let desktopLayer = null;
 let desktopShellMessage = 0;
 let noteGeometry = null;
@@ -48,14 +48,34 @@ const dashboardRefresh = new DashboardRefresh({
 });
 
 function applyNativePinState(win, pinned) {
-  if (pinned) {
-    if (desktopLayer && !desktopLayer.detach(win)) {
-      throw new Error('Could not detach desktop owner before pinning');
+  const wasTopmost = win.isAlwaysOnTop();
+  try {
+    if (pinned) {
+      if (desktopLayer && !desktopLayer.detach(win)) {
+        throw new Error('Could not detach note from the desktop');
+      }
+      win.setAlwaysOnTop(true, 'floating');
+    } else {
+      win.setAlwaysOnTop(false, 'floating');
+      if (!desktopLayer || !desktopLayer.attach(win)) {
+        throw new Error('Desktop attachment unavailable; note remains pinned');
+      }
     }
-    win.setAlwaysOnTop(true, 'floating');
-  } else {
-    win.setAlwaysOnTop(false, 'floating');
-    if (desktopLayer) desktopLayer.attach(win);
+  } catch (error) {
+    // Do not persist a pin state unless the entire native transition worked.
+    // Restore both the z-order and parent when any native step fails.
+    try {
+      if (wasTopmost) {
+        if (desktopLayer) desktopLayer.detach(win);
+        win.setAlwaysOnTop(true, 'floating');
+      } else {
+        win.setAlwaysOnTop(false, 'floating');
+        if (desktopLayer) desktopLayer.attach(win);
+      }
+    } catch (restoreError) {
+      console.error("[Ray's Note] Could not roll back desktop attachment:", restoreError);
+    }
+    throw error;
   }
 }
 
@@ -64,7 +84,9 @@ function refreshDesktopAttachment() {
   for (const [id, win] of noteWins) {
     const note = getNoteById(id);
     if (note && !note.pinned && !note.hidden && !win.isDestroyed()) {
-      desktopLayer.ensure(win);
+      // Explorer may have recreated its desktop host. Never let an unpinned
+      // note become a floating top-level window if recovery fails.
+      if (!desktopLayer.ensure(win)) win.hide();
     }
   }
 }
@@ -293,7 +315,13 @@ function openNoteWindow(note) {
     if (win.isDestroyed() || !getNoteById(note.id) || getNoteById(note.id).hidden) return;
     win.webContents.send('init', getNoteById(note.id));
     win._rayReady = true;
-    if (!note.pinned && desktopLayer) desktopLayer.attach(win);
+    if (!note.pinned && (!desktopLayer || !desktopLayer.attach(win))) {
+      // Never display an unpinned note as a normal foreground window.
+      console.error("[Ray's Note] Desktop attachment unavailable for note", note.id);
+      win.destroy();
+      openDashboard(); // The note remains in storage and can be pinned there.
+      return;
+    }
     installDesktopShellHook(win);
     noteCorners.apply?.();
     win.show();
@@ -301,7 +329,9 @@ function openNoteWindow(note) {
   });
 
   win.on('show', () => {
-    if (desktopLayer && !getNoteById(note.id)?.pinned) desktopLayer.ensure(win);
+    if (!getNoteById(note.id)?.pinned && (!desktopLayer || !desktopLayer.ensure(win))) {
+      win.hide(); // A missing desktop host must not expose a floating note.
+    }
   });
 
   // Only real user moves/resizes update saved geometry. Display reflow is
@@ -428,7 +458,7 @@ app.whenReady().then(() => {
     });
     desktopShellMessage = adapter.registerTaskbarCreated();
   } catch (error) {
-    console.warn("[Ray's Note] Desktop integration unavailable; normal notes remain available:", error.message);
+    console.warn("[Ray's Note] Desktop integration unavailable; unpinned notes will stay offscreen:", error.message);
   }
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   try {
