@@ -31,7 +31,7 @@ function preflight({ runtime = false } = {}) {
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'));
   const b = pkg.build || {};
-  assert(pkg.name === 'rays-note' && pkg.version === '1.0.0',
+  assert(pkg.name === 'rays-note' && pkg.version === '2.0.0',
     'Unexpected package identity/version; review data-location compatibility');
   assert(b.appId === 'com.rays.note' && b.productName === 'Ray Notes',
     'Do not rename the established app ID or product name');

@@ -26,10 +26,10 @@ npm run release:verify
 ```
 
 Expected files in `dist/`:
-- `RayNotes-Setup-1.0.0-x64.exe` — assisted Windows installer
-- `RayNotes-Portable-1.0.0-x64.exe` — portable Windows executable
+- `RayNotes-Setup-2.0.0-x64.exe` — assisted Windows installer
+- `RayNotes-Portable-2.0.0-x64.exe` — portable Windows executable
 - `win-unpacked/Ray Notes.exe` — unpacked launch test
-- `RayNotes-1.0.0-SHA256.txt` — generated artifact hashes
+- `RayNotes-2.0.0-SHA256.txt` — generated artifact hashes
 
 The app icon `note-icon.ico` is included as both the Windows executable icon and the runtime tray icon. Native `koffi` files are explicitly unpacked from ASAR.
 

@@ -3,7 +3,7 @@
 ## Release scope and data preservation
 
 - Source baseline: `db641d7` on `fix/rays-note-full-stabilization`.
-- Existing app identity is retained: package `rays-note`, product name `Ray Notes`, app ID `com.rays.note`, version `1.0.0`. Do not rename those without an intentional, tested user-data migration.
+- Existing app identity is retained: package `rays-note`, product name `Ray Notes`, app ID `com.rays.note`, version `2.0.0`. Do not rename those without an intentional, tested user-data migration.
 - Both packaged binaries are **unsigned** unless your own signing environment supplies a trusted certificate. Windows SmartScreen warnings are possible. Do not bypass security warnings blindly.
 - `npm run build` only creates artifacts under `dist/`; it **does not install or publish** them.
 - The default user-data location is decided by Electron's runtime app name. The development profile, an existing installed release, and the new installer may use different directories. **No automatic data migration is performed.** An initially blank packaged app does not mean older notes were deleted.
@@ -32,10 +32,10 @@ npm run release:verify
 
 ## Expected output files
 
-- `dist/RayNotes-Setup-1.0.0-x64.exe` — NSIS installer (assisted install)
-- `dist/RayNotes-Portable-1.0.0-x64.exe` — portable launcher
+- `dist/RayNotes-Setup-2.0.0-x64.exe` — NSIS installer (assisted install)
+- `dist/RayNotes-Portable-2.0.0-x64.exe` — portable launcher
 - `dist/win-unpacked/Ray Notes.exe` — unpacked application for a first smoke test
-- `dist/RayNotes-1.0.0-SHA256.txt` — checksums after `npm run release:verify`
+- `dist/RayNotes-2.0.0-SHA256.txt` — checksums after `npm run release:verify`
 
 ## Mandatory manual tests
 

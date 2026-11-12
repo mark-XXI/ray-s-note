@@ -15,7 +15,7 @@ const read=rel=>fs.readFileSync(path.join(root,rel),'utf8');
 test('real full-source snapshot keeps package and lockfile identities synchronized',()=>{
   const info=preflight();
   assert.equal(info.name,'rays-note');
-  assert.equal(info.version,'1.0.0');
+  assert.equal(info.version,'2.0.0');
 });
 test('existing application identity is preserved for user-data compatibility',()=>{
   assert.equal(config.appId,'com.rays.note');
@@ -68,9 +68,9 @@ test('build validator blocks missing artifacts without writing a checksum file',
   const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'rays-rel-missing-'));
   try {
     fs.mkdirSync(path.join(tmp,'dist'));
-    fs.writeFileSync(path.join(tmp,'package.json'),JSON.stringify({version:'1.0.0'}));
+    fs.writeFileSync(path.join(tmp,'package.json'),JSON.stringify({version:'2.0.0'}));
     assert.throws(()=>verifyRelease({root:tmp,platform:'win32',arch:'x64'}),/ENOENT|undersized/);
-    assert.ok(!fs.existsSync(path.join(tmp,'dist','RayNotes-1.0.0-SHA256.txt')));
+    assert.ok(!fs.existsSync(path.join(tmp,'dist','RayNotes-2.0.0-SHA256.txt')));
   } finally {fs.rmSync(tmp,{recursive:true,force:true});}
 });
 test('build validator fails closed on non-Windows platform',()=>{
@@ -80,10 +80,10 @@ test('installer, portable and unpacked binaries must have valid PE headers',()=>
   const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'rays-rel-pe-'));
   try {
     const d=path.join(tmp,'dist');fs.mkdirSync(d);
-    fs.writeFileSync(path.join(tmp,'package.json'),JSON.stringify({version:'1.0.0'}));
+    fs.writeFileSync(path.join(tmp,'package.json'),JSON.stringify({version:'2.0.0'}));
     const b=Buffer.alloc(66000,0);b.write('MZ',0,'ascii');b.writeUInt32LE(0x80,0x3c);b.write('PE\0\0',0x80,'ascii');
-    fs.writeFileSync(path.join(d,'RayNotes-Setup-1.0.0-x64.exe'),b);
-    fs.writeFileSync(path.join(d,'RayNotes-Portable-1.0.0-x64.exe'),b);
+    fs.writeFileSync(path.join(d,'RayNotes-Setup-2.0.0-x64.exe'),b);
+    fs.writeFileSync(path.join(d,'RayNotes-Portable-2.0.0-x64.exe'),b);
     const unpacked=path.join(d,'win-unpacked');fs.mkdirSync(path.join(unpacked,'resources'),{recursive:true});
     fs.writeFileSync(path.join(unpacked,'Ray Notes.exe'),b);
     fs.writeFileSync(path.join(unpacked,'resources','app.asar'),Buffer.alloc(15000,0));
@@ -94,7 +94,7 @@ test('installer, portable and unpacked binaries must have valid PE headers',()=>
     const report=verifyRelease({root:tmp,platform:'win32',arch:'x64',writeChecksums:true});
     assert.equal(report.binaries.length,2);
     assert.equal(report.nativeModules,1);
-    assert.match(fs.readFileSync(path.join(d,'RayNotes-1.0.0-SHA256.txt'),'utf8'),/RayNotes-Portable/);
+    assert.match(fs.readFileSync(path.join(d,'RayNotes-2.0.0-SHA256.txt'),'utf8'),/RayNotes-Portable/);
   } finally {fs.rmSync(tmp,{recursive:true,force:true});}
 });
 test('release documentation warns about unsigned installers and profile boundaries',()=>{
