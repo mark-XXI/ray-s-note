@@ -275,3 +275,115 @@ test('native adapter refuses failed SetParent and restores original style', () =
   assert.equal(h.notes.get(456n).style, 0x80040000n);
   assert.deepEqual(h.notes.get(456n).r, before);
 });
+
+
+test('editor-only desktop focus bridge joins GUI queues briefly and detaches', () => {
+  const { createDesktopEditorFocus } = require('../src/windows/desktop-editor-focus');
+  let focused = 0n;
+  let joined = false;
+  const calls = [];
+  const mock = {
+    IsWindow: h => [123n,456n,777n].includes(BigInt(h)) ? 1 : 0,
+    IsChild: (p,c) => (BigInt(p) === 123n && BigInt(c) === 456n ? 1 : 0),
+    GetForegroundWindow: () => 777n,
+    GetWindowThreadProcessId: h => BigInt(h) === 456n ? 42 : 99,
+    AttachThreadInput: (a,b,on) => { calls.push([a,b,on]); joined = Boolean(on); return 1; },
+    SetFocus: h => { if (joined) focused = BigInt(h); return 0n; },
+    GetFocus: () => focused,
+    GetCurrentThreadId: () => 42,
+  };
+  const koffiModule = { load: () => ({ func: sig => {
+    const name = /__stdcall ([A-Za-z0-9_]+)\(/.exec(sig)?.[1];
+    assert.ok(name in mock, `Missing mocked API ${name}`);
+    return mock[name];
+  } }) };
+  const win = { isDestroyed: () => false, getNativeWindowHandle: () => {
+    const buffer = Buffer.alloc(8); buffer.writeBigUInt64LE(456n); return buffer;
+  } };
+  const bridge = createDesktopEditorFocus({ koffiModule, platform:'win32', arch:'x64' });
+  assert.equal(bridge.focusEditor(win, 123n), true);
+  assert.deepEqual(calls, [[42,99,1],[42,99,0]]);
+  assert.equal(joined,false);
+});
+
+test('focus bridge refuses foreign children and destroyed windows', () => {
+  const { createDesktopEditorFocus } = require('../src/windows/desktop-editor-focus');
+  const mock = { load: () => ({func: sig => {
+    if (sig.includes('IsWindow(')) return () => 1;
+    if (sig.includes('IsChild(')) return () => 0;
+    return () => { throw Error('Unexpected focus side effect'); };
+  }})};
+  const bridge = createDesktopEditorFocus({ koffiModule:mock, platform:'win32', arch:'x64' });
+  const win = { isDestroyed: () => false, getNativeWindowHandle: () => {
+    const buffer = Buffer.alloc(8); buffer.writeBigUInt64LE(456n); return buffer;
+  } };
+  assert.equal(bridge.focusEditor(win,123n),false);
+  assert.equal(bridge.focusEditor({isDestroyed:()=>true},123n),false);
+});
+
+test('native focus bridge never leaves GUI queues attached after a partial failure', () => {
+  const { createDesktopEditorFocus } = require('../src/windows/desktop-editor-focus');
+  const calls = [];
+  const mock = {
+    IsWindow: () => 1,
+    IsChild: () => 1,
+    GetForegroundWindow: () => 777n,
+    GetWindowThreadProcessId: h => BigInt(h) === 456n ? 20 : 30,
+    GetCurrentThreadId: () => 10,
+    AttachThreadInput: (a,b,on) => { calls.push([a,b,on]); return (b === 30 && on === 1) ? 0 : 1; },
+    SetFocus: () => { throw Error('Must not focus after failed attach'); },
+    GetFocus: () => 0n,
+  };
+  const koffiModule = {load:()=>({func:sig=>mock[/__stdcall ([A-Za-z0-9_]+)\(/.exec(sig)[1]]})};
+  const bridge=createDesktopEditorFocus({koffiModule,platform:'win32',arch:'x64'});
+  const win={isDestroyed:()=>false,getNativeWindowHandle:()=>{
+    const b=Buffer.alloc(8);b.writeBigUInt64LE(456n);return b;
+  }};
+  assert.equal(bridge.focusEditor(win,123n),false);
+  assert.deepEqual(calls,[[10,20,1],[10,30,1],[10,20,0]]);
+});
+
+test('native focus requests only originate from editor/title, never pin or toolbar', () => {
+  const renderer = fs.readFileSync(path.join(__dirname,'..','src/renderer/note.js'),'utf8');
+  const snippet = renderer.match(/function requestEditorNativeFocus\(event\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(snippet);
+  const vm = require('node:vm');
+  let called = 0;
+  const editorRef = {};
+  const context = {noteId:7,editor:editorRef,noteAPI:{requestEditorFocus:()=>{called++;}}};
+  const handler = vm.runInNewContext(`${snippet}; requestEditorNativeFocus`,context);
+  handler({isTrusted:true,isPrimary:true,button:0});
+  handler({isTrusted:false,isPrimary:true,button:0});
+  handler({isTrusted:true,isPrimary:true,button:2});
+  assert.equal(called,1);
+  handler({isTrusted:true,isPrimary:true,button:0,currentTarget:editorRef,
+    target:{closest:()=>({tagName:'INPUT'})}});
+  assert.equal(called,1, 'checkbox click must not invoke native input queue attachment');
+  context.noteId = null;
+  handler({isTrusted:true,isPrimary:true,button:0});
+  assert.equal(called,1);
+  assert.match(renderer,/editor\.addEventListener\('pointerdown', requestEditorNativeFocus/);
+  assert.match(renderer,/titleInput\.addEventListener\('pointerdown', requestEditorNativeFocus/);
+  assert.doesNotMatch(renderer,/document\.addEventListener\('pointerdown', requestEditorNativeFocus/);
+  assert.doesNotMatch(renderer,/pinBtn\.addEventListener\('pointerdown', requestEditorNativeFocus/);
+  const main = fs.readFileSync(path.join(__dirname,'..','main.js'),'utf8');
+  assert.match(main,/process\.env\.RAYS_NOTE_DESKTOP_EDITOR_FOCUS !== '0'/);
+  assert.match(main,/ipcMain\.on\('request-desktop-editor-focus', \(event\) => \{/);
+  assert.match(main,/const id = trustedNoteId\(event\)/);
+  assert.match(main,/note\.hidden \|\| note\.pinned/);
+  assert.match(main,/desktopLayer\.attached\.get\(win\)/);
+  assert.match(main,/if \(desktopEditorFocus\.focusEditor\(win, record\.host\)\) win\.webContents\.focus\(\)/);
+  // Both directions of native pin transition must remain unchanged.
+  assert.match(main,/desktopLayer\.detach\(win\)/);
+  assert.match(main,/desktopLayer\.attach\(win\)/);
+  assert.match(main,/win\.setAlwaysOnTop\(true, 'floating'\)/);
+  assert.match(main,/win\.setAlwaysOnTop\(false, 'floating'\)/);
+});
+
+// Release default: editor focus bridge is enabled without launch flags, and can
+// be disabled temporarily with RAYS_NOTE_DESKTOP_EDITOR_FOCUS=0.
+test('desktop editor focus is default-on with an explicit zero opt-out', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
+  assert.match(source, /process\.env\.RAYS_NOTE_DESKTOP_EDITOR_FOCUS !== '0'/);
+  assert.doesNotMatch(source, /process\.env\.RAYS_NOTE_DESKTOP_EDITOR_FOCUS === '1'/);
+});

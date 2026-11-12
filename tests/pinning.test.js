@@ -201,3 +201,102 @@ test('renderer initialization handshake survives an early missed init event', ()
   assert.match(main, /ipcMain\.on\('request-note-init', \(event\) => \{\s*const id = trustedNoteId\(event\);/);
   assert.match(main, /win\.webContents\.send\('init', note\)/);
 });
+
+
+// Opt-in safe pin transitions replace a Chromium HWND instead of reparenting
+// the same live desktop-child HWND. Storage and edit flushes are mandatory.
+const { PinWindowSwap } = require('../src/windows/pin-window-swap');
+
+function swapHarness({ pinned = false, flushResults = [true, true], saveResult = true } = {}) {
+  const calls = [];
+  const tasks = [];
+  const note = { id: 7, pinned, hidden: false, content: 'saved', x: 10, y: 20 };
+  let destroyed = false;
+  const win = { isDestroyed: () => destroyed, destroy() { destroyed = true; calls.push('destroy'); } };
+  const controller = new PinWindowSwap({
+    getNote: id => id === 7 ? note : null,
+    getWindow: id => id === 7 ? win : null,
+    flushWindow: async () => { calls.push('flush'); return flushResults.shift() === true; },
+    persistPinned: (_id, value) => {
+      calls.push('persist:' + value);
+      if (!saveResult) return false;
+      note.pinned = value;
+      return true;
+    },
+    openWindow: item => { assert.equal(item, note); calls.push('reopen:' + item.pinned); },
+    notify: (_id, value) => calls.push('notify:' + value),
+    reportUnsaved: () => calls.push('unsaved'),
+    reportError: error => calls.push('error:' + error.message),
+    schedule: fn => { tasks.push(fn); },
+  });
+  return { note, win, calls, tasks, controller };
+}
+
+test('desktop child to pinned creates fresh top-level window after both flushes', async () => {
+  const h = swapHarness();
+  assert.deepEqual(await h.controller.toggle(7), { ok: true, pinned: true });
+  assert.deepEqual(h.calls, ['flush', 'persist:true', 'notify:true']);
+  assert.equal(h.controller.isBusy(7), true);
+  h.tasks.shift()();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(h.calls, ['flush', 'persist:true', 'notify:true', 'flush', 'destroy', 'reopen:true']);
+  assert.equal(h.controller.isBusy(7), false);
+});
+
+test('pinned to desktop child creates fresh desktop window', async () => {
+  const h = swapHarness({ pinned: true });
+  assert.equal((await h.controller.toggle(7)).pinned, false);
+  h.tasks.shift()();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(h.calls.slice(-2), ['destroy', 'reopen:false']);
+});
+
+test('failed first editor flush never changes native or saved pin state', async () => {
+  const h = swapHarness({ flushResults: [false] });
+  assert.equal((await h.controller.toggle(7)).ok, false);
+  assert.equal(h.note.pinned, false);
+  assert.deepEqual(h.calls, ['flush', 'unsaved']);
+  assert.equal(h.tasks.length, 0);
+  assert.equal(h.controller.isBusy(7), false);
+});
+
+test('failed pin persistence never destroys existing editor', async () => {
+  const h = swapHarness({ saveResult: false });
+  assert.equal((await h.controller.toggle(7)).ok, false);
+  assert.deepEqual(h.calls, ['flush', 'persist:true']);
+  assert.equal(h.win.isDestroyed(), false);
+});
+
+test('last-moment editor flush failure restores pin state and keeps old editor', async () => {
+  const h = swapHarness({ flushResults: [true, false] });
+  assert.equal((await h.controller.toggle(7)).ok, true);
+  h.tasks.shift()();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.note.pinned, false);
+  assert.equal(h.win.isDestroyed(), false);
+  assert.deepEqual(h.calls.slice(-3), ['unsaved', 'persist:false', 'notify:false']);
+});
+
+test('repeated pin while scheduled is rejected', async () => {
+  const h = swapHarness();
+  assert.equal((await h.controller.toggle(7)).ok, true);
+  assert.equal((await h.controller.toggle(7)).ok, false);
+  assert.equal(h.tasks.length, 1);
+});
+
+test('main process routes renderer and dashboard pin actions to default-on safe swap', () => {
+  const source = read('main.js');
+  assert.match(source, /RAYS_NOTE_SAFE_PIN_SWAP !== '0'/);
+  assert.match(source, /return togglePinSafely\(id\);/);
+  assert.match(source, /void togglePinSafely\(id\);/);
+  assert.match(source, /new PinWindowSwap\(/);
+  assert.doesNotMatch(read('src/windows/pin-window-swap.js'), /SetParent|SetWindowPos|setAlwaysOnTop/);
+});
+
+// Release default: safe window recreation is used automatically, not only in
+// a specially configured PowerShell session. The explicit zero is a safety off switch.
+test('safe pin-window swap is default-on with an explicit zero opt-out', () => {
+  const source = read('main.js');
+  assert.match(source, /RAYS_NOTE_SAFE_PIN_SWAP !== '0'/);
+  assert.doesNotMatch(source, /RAYS_NOTE_SAFE_PIN_SWAP === '1'/);
+});

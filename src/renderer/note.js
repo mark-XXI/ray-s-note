@@ -19,6 +19,20 @@ const saveLbl = document.getElementById('save-lbl');
 const pinBtn = document.getElementById('wb-pin');
 let pinBusy = false;
 
+// Desktop-only windows can receive pointer input while Explorer retains the
+// keyboard queue. Repair only editor/title presses. In particular, NEVER
+// request native focus on the pin button or any other toolbar/window control:
+// doing so could race with the SetParent transition on pin/unpin.
+function requestEditorNativeFocus(event) {
+  if (noteId === null || !event.isTrusted || !event.isPrimary || event.button !== 0) return;
+  // A checklist checkbox lives inside #editor but must keep its native click.
+  if (event.currentTarget === editor && event.target && event.target.closest &&
+      event.target.closest('input, button, select, [role=\"checkbox\"]')) return;
+  noteAPI.requestEditorFocus();
+}
+editor.addEventListener('pointerdown', requestEditorNativeFocus, { capture: true });
+titleInput.addEventListener('pointerdown', requestEditorNativeFocus, { capture: true });
+
 function normalizeTitle(value) {
   if (typeof value !== 'string') return '';
   return value.trim().slice(0, TITLE_MAX_LENGTH);

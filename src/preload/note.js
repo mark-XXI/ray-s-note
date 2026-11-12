@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('raysNote', {
     ipcRenderer.on('init', (_event, note) => callback(note));
   },
   requestInit() { ipcRenderer.send('request-note-init'); },
+  requestEditorFocus() { ipcRenderer.send('request-desktop-editor-focus'); },
   onPinChanged(callback) {
     if (typeof callback !== 'function') return;
     ipcRenderer.on('note-pin-changed', (_event, pinned) => callback(pinned === true));

@@ -9,8 +9,10 @@ const {
 } = require('./src/notes/note-model');
 const { DesktopLayer } = require('./src/windows/desktop-layer');
 const { createWindowsDesktopAdapter } = require('./src/windows/win32-desktop');
+const { createDesktopEditorFocus } = require('./src/windows/desktop-editor-focus');
 const { NoteLifecycle } = require('./src/windows/note-lifecycle');
 const { NotePinning } = require('./src/windows/note-pinning');
+const { PinWindowSwap } = require('./src/windows/pin-window-swap');
 const { NoteGeometry } = require('./src/windows/note-geometry');
 const { createCornerAdapter, installNoteCorners } = require('./src/windows/note-corners');
 const { editorFieldsChanged, patchFieldsChanged } = require('./src/performance/note-diff');
@@ -41,6 +43,7 @@ let desktopLayer = null;
 let desktopShellMessage = 0;
 let noteGeometry = null;
 let cornerAdapter = null;
+let desktopEditorFocus = null;
 
 const dashboardRefresh = new DashboardRefresh({
   send: sendDashNotes,
@@ -244,6 +247,34 @@ const notePinning = new NotePinning({
     dialog.showErrorBox("Ray's Note — Pin failed", error.message || String(error));
   },
 });
+
+
+// Default-on transition for Windows desktop CHILD windows: do not reparent the
+// currently-live Chromium HWND. Flush, persist, and reopen only that note in
+// the new state. Pinned and desktop-only notes retain their two z-order modes.
+const pinWindowSwap = new PinWindowSwap({
+  getNote: getNoteById,
+  getWindow: (id) => noteWins.get(id),
+  flushWindow,
+  persistPinned: (id, pinned) => changeNote(id, { pinned }),
+  openWindow: openNoteWindow,
+  notify: (id, pinned) => notePinning.notify(id, pinned),
+  reportUnsaved,
+  reportError: (error) => notePinning.reportError(error),
+});
+
+function togglePinSafely(id) {
+  if (pinWindowSwap.isBusy(id)) {
+    return { ok: false, error: 'Pin transition already in progress' };
+  }
+  const note = getNoteById(id);
+  const win = noteWins.get(id);
+  if (process.env.RAYS_NOTE_SAFE_PIN_SWAP !== '0' && note && !note.hidden &&
+      win && !win.isDestroyed()) {
+    return pinWindowSwap.toggle(id);
+  }
+  return notePinning.toggle(id);
+}
 
 let shutdownApproved = false;
 let shutdownInProgress = false;
@@ -460,6 +491,11 @@ app.whenReady().then(() => {
   } catch (error) {
     console.warn("[Ray's Note] Desktop integration unavailable; unpinned notes will stay offscreen:", error.message);
   }
+  // Default-on repair for a desktop child's editable area. Native pinning is untouched.
+  if (process.env.RAYS_NOTE_DESKTOP_EDITOR_FOCUS !== '0') {
+    try { desktopEditorFocus = createDesktopEditorFocus(); }
+    catch (error) { console.warn('[Ray\'s Note] Desktop editor focus unavailable:', error.message); }
+  }
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   try {
     allNotes = normalizeStoredNotes(noteStore.load());
@@ -510,6 +546,25 @@ function trustedDashboard(event) {
 
 // The renderer explicitly requests its initial snapshot after registering listeners.
 // This closes the race where ready-to-show emits before the renderer subscribes.
+// Authenticate the sender; keyboard focus is permitted only for a live, visible,
+// unpinned editor in our own Explorer child-window registry. Never touch pin
+// state or parent/style/z-order during this request.
+ipcMain.on('request-desktop-editor-focus', (event) => {
+  if (!desktopEditorFocus || !desktopLayer) return;
+  const id = trustedNoteId(event);
+  if (id === null) return;
+  const note = getNoteById(id);
+  const win = noteWins.get(id);
+  if (!note || note.hidden || note.pinned || !win || win.isDestroyed() || !win.isVisible()) return;
+  const record = desktopLayer.attached.get(win);
+  if (!record) return;
+  try {
+    if (desktopEditorFocus.focusEditor(win, record.host)) win.webContents.focus();
+  } catch (error) {
+    console.warn('[Ray\'s Note] Desktop editor focus failed:', error.message);
+  }
+});
+
 ipcMain.on('request-note-init', (event) => {
   const id = trustedNoteId(event);
   if (id === null) return;
@@ -560,10 +615,10 @@ ipcMain.on('new-note-from-dash', (event) => {
 ipcMain.handle('toggle-note-pin', (event) => {
   const id = trustedNoteId(event);
   if (id === null) return { ok: false, error: 'Unauthorized pin request' };
-  return notePinning.toggle(id);
+  return togglePinSafely(id);
 });
 ipcMain.on('pin-note', (event, id) => {
   if (trustedDashboard(event) && Number.isSafeInteger(id) && id > 0) {
-    notePinning.toggle(id);
+    void togglePinSafely(id);
   }
 });
