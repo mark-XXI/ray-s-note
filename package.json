@@ -1,11 +1,17 @@
 {
   "name": "rays-note",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Ray's Note - Desktop Sticky Notes",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --win --x64"
+    "start:test": "node scripts/start-test.js",
+    "test": "node --test tests/baseline.test.js tests/note-store.test.js tests/note-model.test.js tests/note-lifecycle.test.js tests/security.test.js tests/editor.test.js tests/pinning.test.js tests/desktop.test.js tests/geometry.test.js tests/note-visual.test.js tests/dashboard-visual.test.js tests/corners.test.js tests/accessibility.test.js tests/performance.test.js tests/release.test.js",
+    "test:syntax": "node --check main.js && node --check src/storage/note-store.js && node --check src/notes/note-model.js && node --check scripts/start-test.js && node --check tests/baseline.test.js && node --check tests/note-store.test.js && node --check tests/note-model.test.js && node --check src/windows/note-lifecycle.js && node --check tests/note-lifecycle.test.js && node --check src/security/ipc-policy.js && node --check src/preload/note.js && node --check src/preload/dashboard.js && node --check src/renderer/note.js && node --check src/renderer/dashboard.js && node --check src/renderer/note-html.js && node --check tests/security.test.js && node --check src/renderer/note-tasks.js && node --check src/renderer/note-bullets.js && node --check tests/editor.test.js && node --check src/windows/note-pinning.js && node --check tests/pinning.test.js && node --check tests/desktop.test.js && node --check src/windows/desktop-layer.js && node --check src/windows/win32-desktop.js && node --check src/windows/note-geometry.js && node --check tests/geometry.test.js && node --check tests/note-visual.test.js && node --check src/windows/note-corners.js && node --check tests/corners.test.js && node --check tests/dashboard-visual.test.js && node --check src/renderer/keyboard.js && node --check tests/accessibility.test.js && node --check src/performance/dashboard-refresh.js && node --check src/performance/note-diff.js && node --check tests/performance.test.js && node --check scripts/release-check.js && node --check scripts/verify-release.js && node --check tests/release.test.js",
+    "build": "electron-builder --win --x64 --publish never",
+    "release:check": "node scripts/release-check.js",
+    "release:preflight": "npm test && npm run test:syntax && node scripts/release-check.js --runtime",
+    "release:verify": "node scripts/verify-release.js --write-checksums"
   },
   "dependencies": {
     "koffi": "^2.8.0"
@@ -13,13 +19,51 @@
   "build": {
     "appId": "com.rays.note",
     "productName": "Ray Notes",
-    "directories": { "output": "dist" },
+    "directories": {
+      "output": "dist"
+    },
     "win": {
-      "target": [{ "target": "portable", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "note-icon.ico"
     },
     "extraResources": [],
-    "npmRebuild": true
+    "npmRebuild": true,
+    "files": [
+      "main.js",
+      "note.html",
+      "dashboard.html",
+      "note-icon.ico",
+      "src/**/*"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/koffi/**/*"
+    ],
+    "nsis": {
+      "artifactName": "RayNotes-Setup-${version}-${arch}.${ext}",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false
+    },
+    "portable": {
+      "artifactName": "RayNotes-Portable-${version}-${arch}.${ext}"
+    }
   },
   "devDependencies": {
     "electron": "^28.0.0",

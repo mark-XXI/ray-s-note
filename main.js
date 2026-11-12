@@ -1,36 +1,313 @@
-const { app, BrowserWindow, ipcMain, screen, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Tray, Menu, nativeImage, dialog, session } = require('electron');
 const path = require('path');
 const fs   = require('fs');
-const { startDesktopWatcher } = require('./desktop-pin');
+const crypto = require('crypto');
+const { NoteStore } = require('./src/storage/note-store');
+const {
+  NoteValidationError, normalizeStoredNotes, allocateNoteId,
+  createDefaultNote, applyNotePatch,
+} = require('./src/notes/note-model');
+const { DesktopLayer } = require('./src/windows/desktop-layer');
+const { createWindowsDesktopAdapter } = require('./src/windows/win32-desktop');
+const { createDesktopEditorFocus } = require('./src/windows/desktop-editor-focus');
+const { NoteLifecycle } = require('./src/windows/note-lifecycle');
+const { NotePinning } = require('./src/windows/note-pinning');
+const { PinWindowSwap } = require('./src/windows/pin-window-swap');
+const { NoteGeometry } = require('./src/windows/note-geometry');
+const { createCornerAdapter, installNoteCorners } = require('./src/windows/note-corners');
+const { editorFieldsChanged, patchFieldsChanged } = require('./src/performance/note-diff');
+const { DashboardRefresh } = require('./src/performance/dashboard-refresh');
+const { isTrustedFrame, isAuthorizedNoteUpdate } = require('./src/security/ipc-policy');
+
+// Explicitly opt into isolated local data for development testing.
+// Normal `npm start` and packaged builds retain their existing userData path.
+if (!app.isPackaged && process.env.RAYS_NOTE_TEST_DATA_DIR) {
+  const testDir = path.resolve(process.env.RAYS_NOTE_TEST_DATA_DIR);
+  fs.mkdirSync(testDir, { recursive: true });
+  app.setPath('userData', testDir);
+}
 
 const DATA_DIR  = app.getPath('userData');
 const DATA_FILE = path.join(DATA_DIR, 'notes.json');
 
-function loadData() {
+const noteStore = new NoteStore(DATA_FILE);
+let allNotes = [];
+let notesById = new Map();
+const noteWins = new Map();
+let dashWin = null;
+let tray = null;
+let storageErrorReported = false;
+// Desktop attachment is native and session-scoped; the note data format stays
+// unchanged. An unpinned note must never fall back to a normal floating window.
+let desktopLayer = null;
+let desktopShellMessage = 0;
+let noteGeometry = null;
+let cornerAdapter = null;
+let desktopEditorFocus = null;
+
+const dashboardRefresh = new DashboardRefresh({
+  send: sendDashNotes,
+  isActive: () => !!dashWin && !dashWin.isDestroyed() && dashWin.isVisible(),
+});
+
+function applyNativePinState(win, pinned) {
+  const wasTopmost = win.isAlwaysOnTop();
   try {
-    if (fs.existsSync(DATA_FILE)) {
-      const parsed = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-      return Array.isArray(parsed) ? parsed : [];
+    if (pinned) {
+      if (desktopLayer && !desktopLayer.detach(win)) {
+        throw new Error('Could not detach note from the desktop');
+      }
+      win.setAlwaysOnTop(true, 'floating');
+    } else {
+      win.setAlwaysOnTop(false, 'floating');
+      if (!desktopLayer || !desktopLayer.attach(win)) {
+        throw new Error('Desktop attachment unavailable; note remains pinned');
+      }
     }
-  } catch (e) {}
-  return [];
+  } catch (error) {
+    // Do not persist a pin state unless the entire native transition worked.
+    // Restore both the z-order and parent when any native step fails.
+    try {
+      if (wasTopmost) {
+        if (desktopLayer) desktopLayer.detach(win);
+        win.setAlwaysOnTop(true, 'floating');
+      } else {
+        win.setAlwaysOnTop(false, 'floating');
+        if (desktopLayer) desktopLayer.attach(win);
+      }
+    } catch (restoreError) {
+      console.error("[Ray's Note] Could not roll back desktop attachment:", restoreError);
+    }
+    throw error;
+  }
 }
 
-function saveData(notes) {
+function refreshDesktopAttachment() {
+  if (!desktopLayer || shutdownApproved) return;
+  for (const [id, win] of noteWins) {
+    const note = getNoteById(id);
+    if (note && !note.pinned && !note.hidden && !win.isDestroyed()) {
+      // Explorer may have recreated its desktop host. Never let an unpinned
+      // note become a floating top-level window if recovery fails.
+      if (!desktopLayer.ensure(win)) win.hide();
+    }
+  }
+}
+
+function installDesktopShellHook(win) {
+  if (!desktopShellMessage || typeof win.hookWindowMessage !== 'function') return;
   try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(DATA_FILE, JSON.stringify(notes, null, 2), 'utf8');
-  } catch (e) {}
+    win.hookWindowMessage(desktopShellMessage, () => {
+      // Explorer may still be constructing its new desktop windows.
+      setTimeout(refreshDesktopAttachment, 900);
+    });
+  } catch (error) {
+    console.warn("[Ray's Note] Could not watch Explorer restart:", error.message);
+  }
 }
 
-let allNotes = loadData();
-let noteWins = new Map();
-let dashWin  = null;
-let tray     = null;
+function getNoteById(id) { return notesById.get(id) || null; }
 
-function nextId()        { return Date.now() + Math.floor(Math.random() * 1000); }
-function getNoteById(id) { return allNotes.find(n => n.id === id); }
-function persistAll()    { saveData(allNotes); }
+// A change becomes live only after the new file has been safely written.
+function commitNotes(nextNotes) {
+  const checkedNotes = normalizeStoredNotes(nextNotes);
+  noteStore.save(checkedNotes);
+  // Only replace the live collection/index after durable storage succeeds.
+  allNotes = checkedNotes;
+  notesById = new Map(checkedNotes.map((note) => [note.id, note]));
+  storageErrorReported = false;
+  refreshDash();
+}
+
+function reportStorageFailure(error) {
+  console.error('[Ray\'s Note] Storage failure:', error);
+  if (storageErrorReported) return;
+  storageErrorReported = true;
+  dialog.showErrorBox(
+    'Ray\'s Note — Save failed',
+    'The requested change was not saved. Your existing notes file was not replaced. ' +
+      'Check disk space and folder permissions, then try again.\n\n' + error.message
+  );
+}
+
+// The renderer expects a result and must never display "Saved" before this succeeds.
+function saveNoteUpdate(data) {
+  if (!data || typeof data !== 'object') return { ok: false, error: 'Invalid note update' };
+  const current = getNoteById(data.id);
+  if (!current) return { ok: false, error: 'Note no longer exists' };
+  try {
+    const updated = applyNotePatch(current, {
+      title: data.title,
+      content: data.content,
+      color: data.color,
+      fontSize: data.fontSize,
+      dir: data.dir,
+      updatedAt: new Date().toISOString(),
+    });
+    // Validate before comparison, but do not rewrite a byte-identical note.
+    if (!editorFieldsChanged(current, updated)) return { ok: true };
+    commitNotes(allNotes.map((note) => note.id === data.id ? updated : note));
+    return { ok: true };
+  } catch (error) {
+    console.error('[Ray\'s Note] Note update failed:', error);
+    return { ok: false, error: error instanceof NoteValidationError
+      ? error.message : 'Could not write notes to disk. Please retry.' };
+  }
+}
+
+function changeNote(id, patch) {
+  if (!getNoteById(id)) return false;
+  try {
+    const current = getNoteById(id);
+    const updated = applyNotePatch(current, patch);
+    if (!patchFieldsChanged(current, updated, patch)) return true;
+    commitNotes(allNotes.map((note) => note.id === id ? updated : note));
+    return true;
+  } catch (error) {
+    reportStorageFailure(error);
+    return false;
+  }
+}
+
+// Handshake allows the tray Quit action to wait for pending 700ms editor saves.
+const pendingFlushes = new Map();
+function flushWindow(win) {
+  if (win.isDestroyed() || !win._rayReady) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const requestId = crypto.randomBytes(12).toString('hex');
+    let finished = false;
+    const onClosed = () => finish(false);
+    const timer = setTimeout(() => finish(false), 8000);
+    const finish = (ok) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      win.removeListener('closed', onClosed);
+      pendingFlushes.delete(requestId);
+      resolve(ok === true);
+    };
+    pendingFlushes.set(requestId, { sender: win.webContents, finish });
+    win.once('closed', onClosed);
+    try { win.webContents.send('app-flush-request', requestId); }
+    catch (error) { finish(false); }
+  });
+}
+
+ipcMain.on('app-flush-result', (event, result) => {
+  if (!result || typeof result.requestId !== 'string') return;
+  const request = pendingFlushes.get(result.requestId);
+  if (request && trustedNoteId(event) !== null && request.sender === event.sender && typeof result.ok === 'boolean') request.finish(result.ok);
+});
+
+function removeNote(id) {
+  if (!getNoteById(id)) return false;
+  try {
+    commitNotes(allNotes.filter((note) => note.id !== id));
+    return true;
+  } catch (error) {
+    reportStorageFailure(error);
+    return false;
+  }
+}
+
+function reportUnsaved() {
+  dialog.showErrorBox(
+    "Ray's Note — Unsaved changes",
+    'The latest edits could not be saved. The note was left open; retry after saving.'
+  );
+}
+
+const noteLifecycle = new NoteLifecycle({
+  getNote: getNoteById,
+  listNotes: () => allNotes,
+  updateNote: changeNote,
+  removeNote,
+  getWindow: (id) => noteWins.get(id),
+  openWindow: openNoteWindow,
+  flushWindow,
+  reportError: reportStorageFailure,
+  reportUnsaved,
+  refresh: refreshDash,
+});
+
+// Dashboard and individual note pin controls share this single operation.
+const notePinning = new NotePinning({
+  getNote: getNoteById,
+  getWindow: (id) => noteWins.get(id),
+  applyNativePinState,
+  persistPinned: (id, pinned) => changeNote(id, { pinned }),
+  notify: (id, pinned) => {
+    const win = noteWins.get(id);
+    if (win && !win.isDestroyed() && win._rayReady) {
+      win.webContents.send('note-pin-changed', pinned);
+    }
+  },
+  reportError: (error) => {
+    console.error("[Ray's Note] Pinning failed:", error);
+    dialog.showErrorBox("Ray's Note — Pin failed", error.message || String(error));
+  },
+});
+
+
+// Default-on transition for Windows desktop CHILD windows: do not reparent the
+// currently-live Chromium HWND. Flush, persist, and reopen only that note in
+// the new state. Pinned and desktop-only notes retain their two z-order modes.
+const pinWindowSwap = new PinWindowSwap({
+  getNote: getNoteById,
+  getWindow: (id) => noteWins.get(id),
+  flushWindow,
+  persistPinned: (id, pinned) => changeNote(id, { pinned }),
+  openWindow: openNoteWindow,
+  notify: (id, pinned) => notePinning.notify(id, pinned),
+  reportUnsaved,
+  reportError: (error) => notePinning.reportError(error),
+});
+
+function togglePinSafely(id) {
+  if (pinWindowSwap.isBusy(id)) {
+    return { ok: false, error: 'Pin transition already in progress' };
+  }
+  const note = getNoteById(id);
+  const win = noteWins.get(id);
+  if (process.env.RAYS_NOTE_SAFE_PIN_SWAP !== '0' && note && !note.hidden &&
+      win && !win.isDestroyed()) {
+    return pinWindowSwap.toggle(id);
+  }
+  return notePinning.toggle(id);
+}
+
+let shutdownApproved = false;
+let shutdownInProgress = false;
+async function quitSafely() {
+  if (shutdownInProgress || shutdownApproved) return;
+  shutdownInProgress = true;
+  try {
+    await noteLifecycle.whenIdle();
+    for (const win of [...noteWins.values()]) {
+      if (!win.isDestroyed() && !await flushWindow(win)) {
+        reportUnsaved();
+        return;
+      }
+    }
+    // The normal before-quit event runs again here; only the fully
+    // acknowledged path is allowed to close its note windows.
+    shutdownApproved = true;
+    if (noteGeometry) noteGeometry.stop();
+    dashboardRefresh.stop();
+    app.quit();
+  } catch (error) {
+    reportStorageFailure(error);
+  } finally {
+    shutdownInProgress = false;
+  }
+}
+
+// Local, packaged UI only: links, frames and popups must never navigate to remote pages.
+function lockRendererWindow(win) {
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.webContents.on('will-navigate', (event) => event.preventDefault());
+  win.webContents.on('will-attach-webview', (event) => event.preventDefault());
+}
 
 // ── Note Window ────────────────────────────────────────────────────────────────
 function openNoteWindow(note) {
@@ -39,43 +316,72 @@ function openNoteWindow(note) {
     if (!ex.isDestroyed()) { ex.show(); ex.focus(); return; }
   }
 
-  const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize;
+  // Saved positions are preferred, but a temporarily disconnected monitor
+  // must never strand the window outside every current desktop work area.
+  const placement = noteGeometry.initial(note, noteWins.size);
   const win = new BrowserWindow({
-    x: note.x ?? Math.floor(20 + Math.random() * (sw - 320)),
-    y: note.y ?? Math.floor(20 + Math.random() * (sh - 380)),
-    width:  note.w ?? 300,
-    height: note.h ?? 360,
-    minWidth: 200, minHeight: 200,
-    frame: false, transparent: false,
+    ...placement,
+    minWidth: 280, minHeight: 320,
+    frame: false, transparent: false, roundedCorners: true, thickFrame: true,
     resizable: true, skipTaskbar: true,
-    alwaysOnTop: false,
-    webPreferences: { nodeIntegration: true, contextIsolation: false },
+    alwaysOnTop: note.pinned === true,
+    webPreferences: {
+      nodeIntegration: false, contextIsolation: true, sandbox: true,
+      preload: path.join(__dirname, 'src/preload/note.js'),
+    },
     backgroundColor: note.color || '#FFF9C4',
     show: false,
   });
 
+  // Native rounding is independent of editor, pin and desktop-layer ownership.
+  const noteCorners = installNoteCorners(win, {
+    adapter: cornerAdapter,
+    warn: (error) => console.warn("[Ray's Note] Corner fallback:", error.message || String(error)),
+  });
+  win._rayReady = false;
+  lockRendererWindow(win);
   win.loadFile('note.html');
 
   win.once('ready-to-show', () => {
+    if (win.isDestroyed() || !getNoteById(note.id) || getNoteById(note.id).hidden) return;
+    win.webContents.send('init', getNoteById(note.id));
+    win._rayReady = true;
+    if (!note.pinned && (!desktopLayer || !desktopLayer.attach(win))) {
+      // Never display an unpinned note as a normal foreground window.
+      console.error("[Ray's Note] Desktop attachment unavailable for note", note.id);
+      win.destroy();
+      openDashboard(); // The note remains in storage and can be pinned there.
+      return;
+    }
+    installDesktopShellHook(win);
+    noteCorners.apply?.();
     win.show();
-    win.webContents.send('init', note);
-    // Start native watcher — restores window if Show Desktop minimizes it
-    startDesktopWatcher(win);
+    refreshDash();
   });
 
-  win.on('moved', () => {
-    const [nx, ny] = win.getPosition();
-    const n = getNoteById(note.id);
-    if (n) { n.x = nx; n.y = ny; persistAll(); }
+  win.on('show', () => {
+    if (!getNoteById(note.id)?.pinned && (!desktopLayer || !desktopLayer.ensure(win))) {
+      win.hide(); // A missing desktop host must not expose a floating note.
+    }
   });
 
-  win.on('resized', () => {
-    const [nw, nh] = win.getSize();
-    const n = getNoteById(note.id);
-    if (n) { n.w = nw; n.h = nh; persistAll(); }
+  // Only real user moves/resizes update saved geometry. Display reflow is
+  // session-only, so unplugging a monitor does not destroy the saved layout.
+  noteGeometry.track(win, note.id);
+
+  // Native close (Alt+F4, window manager, etc.) must take the same
+  // flush-and-persist path as the editor's red Close button.
+  win.on('close', (event) => {
+    if (shutdownApproved) return;
+    event.preventDefault();
+    void noteLifecycle.hide(note.id);
   });
 
-  win.on('closed', () => { noteWins.delete(note.id); refreshDash(); });
+  win.on('closed', () => {
+    if (desktopLayer) desktopLayer.forget(win);
+    if (noteWins.get(note.id) === win) noteWins.delete(note.id);
+    refreshDash();
+  });
 
   noteWins.set(note.id, win);
 }
@@ -88,26 +394,37 @@ function openDashboard() {
     width: 520, height: 600, minWidth: 400, minHeight: 400,
     title: "Ray's Note - Dashboard",
     frame: true, skipTaskbar: false,
-    webPreferences: { nodeIntegration: true, contextIsolation: false },
+    webPreferences: {
+      nodeIntegration: false, contextIsolation: true, sandbox: true,
+      preload: path.join(__dirname, 'src/preload/dashboard.js'),
+    },
     backgroundColor: '#1e1e2e', show: false,
   });
 
+  lockRendererWindow(dashWin);
   dashWin.setMenu(null);
   try { dashWin.setIcon(path.join(__dirname, 'note-icon.ico')); } catch {}
   dashWin.loadFile('dashboard.html');
-  dashWin.once('ready-to-show', () => { dashWin.show(); sendDashNotes(); });
-  dashWin.on('closed', () => { dashWin = null; });
+  // A newly opened or re-shown dashboard gets an immediate complete snapshot.
+  dashWin.on('show', () => { dashboardRefresh.flush({ force: true }); });
+  dashWin.on('restore', () => { dashboardRefresh.flush({ force: true }); });
+  dashWin.once('ready-to-show', () => { if (dashWin && !dashWin.isDestroyed()) dashWin.show(); });
+  dashWin.on('closed', () => { dashboardRefresh.discard(); dashWin = null; });
 }
 
 function sendDashNotes() {
   if (!dashWin || dashWin.isDestroyed()) return;
-  const openIds = new Set(noteWins.keys());
-  dashWin.webContents.send('notes-list', allNotes.map(n => ({
-    ...n, isOpen: openIds.has(n.id)
-  })));
+  dashWin.webContents.send('notes-list', allNotes.map((note) => {
+    const win = noteWins.get(note.id);
+    return {
+      ...note,
+      isOpen: !note.hidden && !!win && !win.isDestroyed() &&
+        (win.isVisible() || !win._rayReady),
+    };
+  }));
 }
 
-function refreshDash() { sendDashNotes(); }
+function refreshDash() { dashboardRefresh.request(); }
 
 // ── Tray ──────────────────────────────────────────────────────────────────────
 function buildTray() {
@@ -127,33 +444,72 @@ function buildTray() {
     { label: 'New Note',   click: () => createNewNote()  },
     { label: 'Dashboard',  click: () => openDashboard()  },
     { type: 'separator' },
-    { label: 'Hide All Notes', click: () => noteWins.forEach(w => !w.isDestroyed() && w.hide()) },
-    { label: 'Show All Notes', click: () => noteWins.forEach(w => !w.isDestroyed() && w.show()) },
+    { label: 'Hide All Notes', click: () => { void noteLifecycle.hideAll(); } },
+    { label: 'Show All Notes', click: () => { void noteLifecycle.showAll(); } },
     { type: 'separator' },
-    { label: "Quit Ray's Note", click: () => { persistAll(); app.exit(0); } },
+    { label: "Quit Ray's Note", click: () => { void quitSafely(); } },
   ]));
 
   tray.on('click', () => {
     const anyVisible = [...noteWins.values()].some(w => !w.isDestroyed() && w.isVisible());
-    if (anyVisible) noteWins.forEach(w => !w.isDestroyed() && w.hide());
-    else            noteWins.forEach(w => !w.isDestroyed() && w.show());
+    if (anyVisible) void noteLifecycle.hideAll();
+    else void noteLifecycle.showAll();
   });
 }
 
 function createNewNote() {
-  const note = {
-    id: nextId(), content: '', color: '#FFF9C4',
-    fontSize: 15, dir: 'rtl', pinned: false, hidden: false,
-    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-  };
-  allNotes.unshift(note);
-  persistAll();
-  openNoteWindow(note);
-  refreshDash();
+  const note = createDefaultNote(allocateNoteId(allNotes));
+  try {
+    commitNotes([note, ...allNotes]);
+    openNoteWindow(note);
+  } catch (error) {
+    reportStorageFailure(error);
+  }
 }
 
 // ── App Ready ─────────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
+  noteGeometry = new NoteGeometry({
+    screen,
+    getNote: getNoteById,
+    persist: changeNote,
+    warn: (message) => console.warn("[Ray's Note] Geometry:", message),
+  });
+  noteGeometry.start();
+  if (process.platform === 'win32' && process.arch === 'x64' &&
+      process.env.RAYS_NOTE_DISABLE_NATIVE_CORNERS !== '1') {
+    try { cornerAdapter = createCornerAdapter(); }
+    catch (error) { console.warn("[Ray's Note] Native corners unavailable:", error.message); }
+  }
+  try {
+    const adapter = createWindowsDesktopAdapter();
+    desktopLayer = new DesktopLayer({
+      adapter,
+      warn: (message) => console.warn("[Ray's Note] Desktop layer:", message),
+    });
+    desktopShellMessage = adapter.registerTaskbarCreated();
+  } catch (error) {
+    console.warn("[Ray's Note] Desktop integration unavailable; unpinned notes will stay offscreen:", error.message);
+  }
+  // Default-on repair for a desktop child's editable area. Native pinning is untouched.
+  if (process.env.RAYS_NOTE_DESKTOP_EDITOR_FOCUS !== '0') {
+    try { desktopEditorFocus = createDesktopEditorFocus(); }
+    catch (error) { console.warn('[Ray\'s Note] Desktop editor focus unavailable:', error.message); }
+  }
+  session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+  try {
+    allNotes = normalizeStoredNotes(noteStore.load());
+    notesById = new Map(allNotes.map((note) => [note.id, note]));
+  } catch (error) {
+    console.error("[Ray's Note] Refusing to overwrite unreadable notes:", error);
+    dialog.showErrorBox(
+      "Ray's Note — Cannot open notes",
+      "The notes file could not be read. Ray's Note will exit without changing it.\n\n" +
+      error.message
+    );
+    app.quit();
+    return;
+  }
   buildTray();
   const visible = allNotes.filter(n => !n.hidden);
   if (visible.length === 0 && allNotes.length === 0) createNewNote();
@@ -161,61 +517,108 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {});
-app.on('before-quit', () => persistAll());
-process.on('exit',   () => persistAll());
+app.on('before-quit', (event) => {
+  if (shutdownApproved) return;
+  event.preventDefault();
+  void quitSafely();
+});
+// No unconditional exit write: it could overwrite unreadable data or stale edits.
 
-// ── IPC ───────────────────────────────────────────────────────────────────────
-ipcMain.on('note-update', (event, data) => {
-  const n = getNoteById(data.id);
-  if (n) { Object.assign(n, data, { updatedAt: new Date().toISOString() }); persistAll(); refreshDash(); }
+// ── Authorized IPC — never trust arbitrary renderer calls ─────────────────────
+function noteIdFromSender(sender) {
+  for (const [id, win] of noteWins) {
+    if (!win.isDestroyed() && win.webContents === sender) return id;
+  }
+  return null;
+}
+
+function trustedNoteId(event) {
+  const id = noteIdFromSender(event.sender);
+  if (id === null) return null;
+  const win = noteWins.get(id);
+  return win && isTrustedFrame(event, win.webContents) ? id : null;
+}
+
+function trustedDashboard(event) {
+  return dashWin && !dashWin.isDestroyed() &&
+    isTrustedFrame(event, dashWin.webContents);
+}
+
+// The renderer explicitly requests its initial snapshot after registering listeners.
+// This closes the race where ready-to-show emits before the renderer subscribes.
+// Authenticate the sender; keyboard focus is permitted only for a live, visible,
+// unpinned editor in our own Explorer child-window registry. Never touch pin
+// state or parent/style/z-order during this request.
+ipcMain.on('request-desktop-editor-focus', (event) => {
+  if (!desktopEditorFocus || !desktopLayer) return;
+  const id = trustedNoteId(event);
+  if (id === null) return;
+  const note = getNoteById(id);
+  const win = noteWins.get(id);
+  if (!note || note.hidden || note.pinned || !win || win.isDestroyed() || !win.isVisible()) return;
+  const record = desktopLayer.attached.get(win);
+  if (!record) return;
+  try {
+    if (desktopEditorFocus.focusEditor(win, record.host)) win.webContents.focus();
+  } catch (error) {
+    console.warn('[Ray\'s Note] Desktop editor focus failed:', error.message);
+  }
+});
+
+ipcMain.on('request-note-init', (event) => {
+  const id = trustedNoteId(event);
+  if (id === null) return;
+  const note = getNoteById(id);
+  const win = noteWins.get(id);
+  if (!note || note.hidden || !win || win.isDestroyed()) return;
+  win.webContents.send('init', note);
+});
+
+ipcMain.handle('note-update', (event, data) => {
+  const id = trustedNoteId(event);
+  if (id === null || !isAuthorizedNoteUpdate(id, data)) {
+    return { ok: false, error: 'Unauthorized note update' };
+  }
+  return saveNoteUpdate(data);
 });
 
 ipcMain.on('note-close', (event) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (!win) return;
-  for (const [id, w] of noteWins) {
-    if (w === win) {
-      const n = getNoteById(id);
-      if (n) { n.hidden = true; persistAll(); refreshDash(); }
-      break;
-    }
-  }
-  win.close();
+  const id = trustedNoteId(event);
+  if (id !== null) void noteLifecycle.hide(id);
 });
-
-// User hide: win.hide() = SW_HIDE → IsIconic stays false → watcher ignores it
-ipcMain.on('note-minimize',  (event) => { const w = BrowserWindow.fromWebContents(event.sender); if (w) { w._userHide = true; w.hide(); } });
-ipcMain.on('note-new',       ()      => createNewNote());
-ipcMain.on('open-dashboard', ()      => openDashboard());
-ipcMain.on('get-notes',      (event) => sendDashNotes());
-
+ipcMain.on('note-minimize', (event) => {
+  const id = trustedNoteId(event);
+  if (id !== null) void noteLifecycle.hide(id);
+});
+ipcMain.on('note-new', (event) => {
+  if (trustedNoteId(event) !== null) createNewNote();
+});
+ipcMain.on('open-dashboard', (event) => {
+  if (trustedNoteId(event) !== null) openDashboard();
+});
+ipcMain.on('get-notes', (event) => {
+  if (trustedDashboard(event)) sendDashNotes();
+});
 ipcMain.on('show-note', (event, id) => {
-  const n = getNoteById(id);
-  if (!n) return;
-  n.hidden = false; persistAll();
-  const ex = noteWins.get(id);
-  if (ex && !ex.isDestroyed()) ex.show();
-  else openNoteWindow(n);
-  refreshDash();
+  if (trustedDashboard(event) && Number.isSafeInteger(id)) void noteLifecycle.show(id);
 });
-
 ipcMain.on('hide-note', (event, id) => {
-  const n = getNoteById(id);
-  if (n) { n.hidden = true; persistAll(); }
-  const win = noteWins.get(id);
-  if (win && !win.isDestroyed()) win.close();
-  refreshDash();
+  if (trustedDashboard(event) && Number.isSafeInteger(id)) void noteLifecycle.hide(id);
 });
-
 ipcMain.on('delete-note', (event, id) => {
-  allNotes = allNotes.filter(n => n.id !== id); persistAll();
-  const win = noteWins.get(id);
-  if (win && !win.isDestroyed()) win.destroy();
-  noteWins.delete(id); refreshDash();
+  if (trustedDashboard(event) && Number.isSafeInteger(id)) void noteLifecycle.delete(id);
 });
-
-ipcMain.on('new-note-from-dash', () => createNewNote());
+ipcMain.on('new-note-from-dash', (event) => {
+  if (trustedDashboard(event)) createNewNote();
+});
+// Renderer pin actions cannot choose arbitrary note IDs.
+ipcMain.handle('toggle-note-pin', (event) => {
+  const id = trustedNoteId(event);
+  if (id === null) return { ok: false, error: 'Unauthorized pin request' };
+  return togglePinSafely(id);
+});
 ipcMain.on('pin-note', (event, id) => {
-  const n = getNoteById(id);
-  if (n) { n.pinned = !n.pinned; persistAll(); refreshDash(); }
+  if (trustedDashboard(event) && Number.isSafeInteger(id) && id > 0) {
+    void togglePinSafely(id);
+  }
 });
